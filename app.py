@@ -1581,10 +1581,45 @@ prod = (df.sort_values("date").groupby("prod_code", dropna=True)
              fiches=("prod_nom", "size")))
 n_fiches, n_prod, n_coach = len(df), len(prod), df["agent_id"].nunique()
 hectares = prod["superficie"].sum()
-r_eng = df["engagement"].astype(float).mean()
-r_cssvd = df["cssvd"].astype(float).mean()
-r_doc = ((df["doc_promesse"] == 1) | (df["doc_fiche"] == 1)).mean()
-r_gps = df["lat"].notna().mean()
+
+
+def _tri(s: pd.Series):
+    """Oui si au moins une fiche dit Oui, Non si seulement des Non, vide sinon."""
+    if (s == True).any():  # noqa: E712
+        return True
+    if (s == False).any():  # noqa: E712
+        return False
+    return np.nan
+
+
+def consolidate(d: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    """Fusionne les fiches en double : une ligne par clé (producteur, ou producteur + parcelle)."""
+    agg = {}
+    for c in d.columns:
+        if c in keys:
+            continue
+        if c in ("engagement", "cssvd"):
+            agg[c] = _tri
+        elif c.startswith(("doc_", "sym_")):
+            agg[c] = "max"
+        elif c == "date":
+            agg[c] = "max"
+        else:
+            agg[c] = "last"  # dernière valeur renseignée
+    out = d.sort_values("date").groupby(keys, dropna=False, sort=False).agg(agg).reset_index()
+    out["doc_aucun"] = ((out["doc_fiche"] != 1) & (out["doc_promesse"] != 1)).astype(int)
+    for c in ("engagement", "cssvd"):
+        out[c] = out[c].astype("object")
+    return out
+
+
+# Une ligne par parcelle (CSSVD, symptômes, GPS, carte) et une par producteur (engagement, documents)
+parc = consolidate(df, ["prod_code", "plantation"])
+pp = consolidate(parc, ["prod_code"])
+r_eng = pp["engagement"].astype(float).mean()
+r_cssvd = parc["cssvd"].astype(float).mean()
+r_doc = ((pp["doc_promesse"] == 1) | (pp["doc_fiche"] == 1)).mean()
+r_gps = parc["lat"].notna().mean()
 
 
 def prod_rate(mask: pd.Series) -> float:
@@ -1712,14 +1747,14 @@ if page == "Tableau de bord":
               <span class='big'>{week}</span><span class='muted'>fiches<br>7 derniers jours</span></div>""")
             st.plotly_chart(fig, config=CFG, width="stretch")
         # Taux d'engagement
-        n_oui = int((df["engagement"] == True).sum())  # noqa: E712
-        n_non = int((df["engagement"] == False).sum())  # noqa: E712
+        n_oui = int((pp["engagement"] == True).sum())  # noqa: E712
+        n_non = int((pp["engagement"] == False).sum())  # noqa: E712
         with a3, st.container(key="card_ring"):
             html("<span class='arrow-btn'>↗</span><p class='card-title'>Engagement</p>")
             st.plotly_chart(ring_chart(r_eng, "Producteurs engagés"), config=CFG, width="stretch")
             html(f"""<div style='display:flex; gap:8px; justify-content:center'>
             <span class='cal-chip'>✓ Oui · {n_oui}</span><span class='cal-chip'>✕ Non · {n_non}</span>
-            <span class='cal-chip' style='background:#2c2c2c;color:#fff'>{n_fiches} fiches</span></div>""")
+            <span class='cal-chip' style='background:#2c2c2c;color:#fff'>{n_prod} producteurs</span></div>""")
 
         b1, b2 = st.columns([1, 2], gap="medium")
         with b1, st.container(key="card_accordion"):
@@ -1742,9 +1777,9 @@ if page == "Tableau de bord":
 
     with right:
         docs = {
-            "Promesse": (df["doc_promesse"] == 1).mean(),
-            "Fiche CSSVD": (df["doc_fiche"] == 1).mean(),
-            "Aucun": (df["doc_aucun"] == 1).mean(),
+            "Promesse": (pp["doc_promesse"] == 1).mean(),
+            "Fiche CSSVD": (pp["doc_fiche"] == 1).mean(),
+            "Aucun": (pp["doc_aucun"] == 1).mean(),
         }
         seg_cols = [GREEN, DARK, GREY]
         seg = "".join(
@@ -1756,7 +1791,7 @@ if page == "Tableau de bord":
             <p class='card-title'>Documents</p><span class='big' style='font-size:2rem'>{pct(r_doc)}</span></div>
             <div class='seg'>{seg}</div>""")
 
-        cs = df[df["cssvd"] == True]  # noqa: E712
+        cs = parc[parc["cssvd"] == True]  # noqa: E712
         n_obs = sum(int((cs[k] == 1).sum()) > 0 for k in SYMPTOMES)
         with st.container(key="dark_symptoms"):
             html(f"""<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:6px'>
@@ -1764,7 +1799,7 @@ if page == "Tableau de bord":
             <div class='t2' style='color:#a8a8a8;font-size:.78rem;margin-bottom:6px'>{len(cs)} parcelles avec signes ·
             cliquez sur un symptôme pour voir les photos</div>""")
             symptom_buttons(cs, "dash")
-            st.download_button("⬇  Exporter la liste (Excel)", to_xlsx(cssvd_table(df)), key="dash_export",
+            st.download_button("⬇  Exporter la liste (Excel)", to_xlsx(cssvd_table(parc)), key="dash_export",
                                file_name=f"producteurs_swollen_shoot_{pd.Timestamp.now():%Y%m%d}.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                width="stretch", disabled=cs.empty)
@@ -1808,13 +1843,15 @@ elif page == "Producteurs":
 # PAGE : Coachs
 # ============================================================================
 elif page == "Coachs":
-    perf = (df.groupby(["agent_id", "agent_nom"])
-            .agg(fiches=("prod_code", "size"), producteurs=("prod_code", "nunique"),
+    activite = df.groupby(["agent_id", "agent_nom"]).agg(fiches=("prod_code", "size"), derniere=("date", "max"))
+    taux = (parc.groupby(["agent_id", "agent_nom"])
+            .agg(producteurs=("prod_code", "nunique"),
                  engagement=("engagement", lambda s: s.astype(float).mean()),
                  cssvd=("cssvd", lambda s: s.astype(float).mean()),
-                 gps=("lat", lambda s: s.notna().mean()),
-                 derniere=("date", "max"))
-            .reset_index().sort_values("fiches", ascending=False))
+                 gps=("lat", lambda s: s.notna().mean())))
+    perf = (activite.join(taux, how="outer").reset_index()
+            [["agent_id", "agent_nom", "fiches", "producteurs", "engagement", "cssvd", "gps", "derniere"]]
+            .sort_values("fiches", ascending=False))
     c1, c2 = st.columns([1.2, 1], gap="medium")
     with c1, st.container(key="card_c_bar"):
         html("<p class='card-title'>Fiches collectées par coach</p>")
@@ -1842,11 +1879,11 @@ elif page == "Coachs":
 # PAGE : Symptômes
 # ============================================================================
 elif page == "Symptômes":
-    cs = df[df["cssvd"] == True]  # noqa: E712
+    cs = parc[parc["cssvd"] == True]  # noqa: E712
     c1, c2 = st.columns([1, 1.3], gap="medium")
     with c1, st.container(key="card_s_ring"):
         html("<p class='card-title'>Parcelles avec signes de CSSVD</p>")
-        st.plotly_chart(ring_chart(r_cssvd, f"{len(cs)} / {df['cssvd'].notna().sum()} parcelles"),
+        st.plotly_chart(ring_chart(r_cssvd, f"{len(cs)} / {parc['cssvd'].notna().sum()} parcelles"),
                         config=CFG, width="stretch")
     with c2, st.container(key="card_s_bar"):
         html("<p class='card-title'>Fréquence des symptômes</p>")
@@ -1861,7 +1898,7 @@ elif page == "Symptômes":
     with st.container(key="card_s_export"):
         html("<p class='card-title'>🧾 Producteurs avec swollen shoot</p>"
              "<div class='muted'>1 ligne = 1 parcelle enquêtée avec signes de CSSVD · coach, parcelle, symptômes, GPS, photos</div>")
-        tab = cssvd_table(df)
+        tab = cssvd_table(parc)
         e1, e2, e3 = st.columns(3)
         fs_sec = e1.multiselect("Section", sorted(tab["Section"].dropna().unique()), key="ex_sec")
         fs_coach = e2.multiselect("Coach", sorted(tab["ID coach"].dropna().unique()), key="ex_coach")
@@ -1896,7 +1933,7 @@ elif page == "Symptômes":
 
     with st.container(key="card_s_sec"):
         html("<p class='card-title'>Taux de CSSVD par section</p>")
-        t = (df.groupby("section").agg(parcelles=("cssvd", "size"),
+        t = (parc.groupby("section").agg(parcelles=("cssvd", "size"),
                                        cssvd=("cssvd", lambda s: s.astype(float).mean()))
              .sort_values("cssvd", ascending=False).reset_index())
         fig = px.bar(t, x="section", y="cssvd", text=t["cssvd"].map(pct), color_discrete_sequence=[GREEN])
@@ -1909,9 +1946,9 @@ elif page == "Symptômes":
 # PAGE : Carte
 # ============================================================================
 elif page == "Carte":
-    g = df.dropna(subset=["lat", "lon"]).copy()
+    g = parc.dropna(subset=["lat", "lon"]).copy()
     with st.container(key="card_map"):
-        html(f"<p class='card-title'>Parcelles géolocalisées · {len(g)} / {len(df)}</p>")
+        html(f"<p class='card-title'>Parcelles géolocalisées · {len(g)} / {len(parc)}</p>")
         if g.empty:
             st.info("Aucune coordonnée GPS dans les données filtrées.")
         else:
