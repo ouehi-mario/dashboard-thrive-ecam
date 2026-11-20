@@ -145,8 +145,8 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: #222; }
 /* Sélecteur de coopérative */
 .st-key-coop [data-testid="stButtonGroup"] { background: rgba(255,255,255,.6); border-radius:999px; padding:4px; display:inline-flex; }
 .st-key-coop button { border:none !important; border-radius:999px !important; background:transparent !important; font-size:.85rem; padding: 4px 16px !important; min-height:34px; font-weight:600; }
-.st-key-coop button[kind="segmented_controlActive"], .st-key-coop button[data-testid="stBaseButton-segmented_controlActive"] { background:#5aa55a !important; }
-.st-key-coop button[kind="segmented_controlActive"] p, .st-key-coop button[data-testid="stBaseButton-segmented_controlActive"] p { color:#fff !important; }
+.st-key-coop button[aria-checked="true"], .st-key-coop button[kind="segmented_controlActive"] { background:#5aa55a !important; }
+.st-key-coop button[aria-checked="true"] p, .st-key-coop button[kind="segmented_controlActive"] p { color:#fff !important; }
 
 /* Alerte doublons */
 .st-key-card_doublons { border-left: 6px solid #d9534f !important; padding: 6px 18px !important; }
@@ -207,10 +207,77 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: #222; }
 /* Navigation */
 .st-key-nav [data-testid="stButtonGroup"] { background: rgba(255,255,255,.6); border-radius:999px; padding:4px; display:inline-flex; }
 .st-key-nav button { border:none !important; border-radius:999px !important; background:transparent !important; font-size:.85rem; padding: 4px 14px !important; min-height:34px; }
-.st-key-nav button[kind="segmented_controlActive"], .st-key-nav button[data-testid="stBaseButton-segmented_controlActive"] { background:#2c2c2c !important; color:#fff !important; }
-.st-key-nav button[kind="segmented_controlActive"] p, .st-key-nav button[data-testid="stBaseButton-segmented_controlActive"] p { color:#fff !important; }
+.st-key-nav button[aria-checked="true"], .st-key-nav button[kind="segmented_controlActive"] { background:#2c2c2c !important; color:#fff !important; }
+.st-key-nav button[aria-checked="true"] p, .st-key-nav button[kind="segmented_controlActive"] p { color:#fff !important; }
 [data-testid="stPopover"] button { border-radius:999px !important; background:rgba(255,255,255,.7) !important; border:none !important; }
 .st-key-card_table [data-testid="stDataFrame"] { border-radius:16px; overflow:hidden; }
+.stats .lab { margin-left: 40px; }
+
+/* ===================== Version tablette (< 1100 px) ===================== */
+@media (max-width: 1100px) {
+  .block-container { padding: 1.4rem 1.4rem 2rem !important; }
+  .kp-row { gap: 16px; }
+  .stat .num { font-size: 2.8rem; }
+  .cnt .n { font-size: 2.1rem; }
+}
+/* ===================== Version téléphone (< 768 px) ===================== */
+@media (max-width: 768px) {
+  .stApp { background: #eef6ea; }
+  .block-container { margin: 0 auto !important; padding: .9rem .75rem 1.6rem !important; border-radius: 0;
+                     box-shadow: none; max-width: 100vw !important; overflow-x: hidden; }
+  [data-testid="stHorizontalBlock"] { gap: .6rem !important; }
+  .logo { font-size: 1.15rem; padding: 4px 14px; }
+  .welcome { font-size: 2rem; letter-spacing: -.8px; margin: 2px 0; }
+  /* menus : défilement horizontal au doigt au lieu de déborder */
+  .st-key-nav [data-testid="stButtonGroup"], .st-key-coop [data-testid="stButtonGroup"] {
+    display: flex !important; flex-wrap: nowrap !important; overflow-x: auto; max-width: 100%;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .st-key-nav [data-testid="stButtonGroup"]::-webkit-scrollbar { display: none; }
+  .st-key-nav button, .st-key-coop button { flex: 0 0 auto; white-space: nowrap; }
+  /* pastilles */
+  .kp-row { gap: 8px; flex-wrap: nowrap; }
+  .kp { min-width: 0; max-width: none; flex: 1 1 0; gap: 5px; }
+  .kp-lab { font-size: .7rem; white-space: normal; text-align: center; line-height: 1.1; min-height: 2.2em;
+            display: flex; align-items: flex-end; }
+  .kp-pill { height: 30px; }
+  .kp-pill span { font-size: .95rem; padding-left: 10px; }
+  /* gros chiffres */
+  .stats { justify-content: space-around !important; gap: 8px !important; padding-top: 10px; }
+  .stat { justify-content: center; }
+  .stat .ic { display: none; }
+  .stat .num { font-size: 2.1rem; letter-spacing: -1px; }
+  .stats .lab { margin-left: 0; text-align: center; font-size: .72rem; }
+  /* compteurs / objectif : 1 grand + grille 2 x 2 */
+  .cnt-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+  .cnt-row > .cnt:first-child { grid-column: 1 / -1; }
+  .cnt { padding: 14px 8px 12px; border-radius: 18px; }
+  .cnt .n { font-size: 1.9rem; }
+  .cnt .n small { font-size: .95rem; }
+  .cnt .lb { font-size: .78rem; }
+  .cnt .pc { font-size: .66rem; }
+  /* cartes */
+  [class*="st-key-card"], [class*="st-key-dark"] { padding: 14px 14px !important; border-radius: 20px; }
+  .st-key-card_profile { min-height: 0; }
+  .prof-av { width: 104px; height: 104px; font-size: 2.4rem; margin-top: 10px; }
+  .prof-foot { margin-top: 18px; }
+  .card-title { font-size: 1.1rem; }
+  .big { font-size: 1.9rem; }
+  .welcome + .kp-row { margin-top: 6px; }
+  /* aucun bloc ne doit élargir la page au-delà de l'écran */
+  /* colonnes empilées, chacune sur toute la largeur */
+  [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
+  [data-testid="stColumn"] { flex: 1 1 100% !important; width: 100% !important; min-width: 0 !important; max-width: 100% !important; }
+  [data-testid="stVerticalBlock"], [data-testid="stElementContainer"], [data-testid="stMarkdownContainer"] { min-width: 0 !important; max-width: 100%; }
+  /* calendrier : défilement horizontal à l'intérieur de sa carte uniquement */
+  .st-key-card_calendar { overflow: hidden; }
+  .st-key-card_calendar [data-testid="stMarkdownContainer"] { overflow-x: auto; width: 100%; }
+  .cal { min-width: 520px; }
+  /* alertes et listes */
+  [data-testid="stExpander"] summary p { font-size: .88rem; }
+  .mini .nm { width: 52%; }
+  [class*="st-key-dark"] button p { font-size: .8rem; }
+  .fn-tr { height: 26px; }
+}
 </style>
 """
 
@@ -1304,10 +1371,10 @@ def render_upas(page: str, pop) -> None:
         n_sec = suivi["section"].nunique() if n_suivis else 0
         n_loc = suivi["localite"].nunique() if n_suivis else 0
         html(f"""
-        <div style='display:flex; justify-content:flex-end; gap:34px; padding-bottom:4px'>
-          <div><div class='stat'><span class='ic'>🗺️</span><span class='num'>{n_sec}</span></div><div class='lab' style='margin-left:40px'>Sections</div></div>
-          <div><div class='stat'><span class='ic'>🏘️</span><span class='num'>{n_loc}</span></div><div class='lab' style='margin-left:40px'>Localités</div></div>
-          <div><div class='stat'><span class='ic'>🌳</span><span class='num'>{fmt(hectares)}</span></div><div class='lab' style='margin-left:40px'>Hectares</div></div>
+        <div class='stats' style='display:flex; justify-content:flex-end; gap:34px; padding-bottom:4px'>
+          <div><div class='stat'><span class='ic'>🗺️</span><span class='num'>{n_sec}</span></div><div class='lab'>Sections</div></div>
+          <div><div class='stat'><span class='ic'>🏘️</span><span class='num'>{n_loc}</span></div><div class='lab'>Localités</div></div>
+          <div><div class='stat'><span class='ic'>🌳</span><span class='num'>{fmt(hectares)}</span></div><div class='lab'>Hectares</div></div>
         </div>""")
 
     def note(k: str) -> str:
@@ -1739,10 +1806,10 @@ with w1:
     </div>""")
 with w2:
     html(f"""
-    <div style='display:flex; justify-content:flex-end; gap:34px; padding-bottom:4px'>
-      <div><div class='stat'><span class='ic'>📝</span><span class='num'>{n_fiches}</span></div><div class='lab' style='margin-left:40px'>Fiches</div></div>
-      <div><div class='stat'><span class='ic'>🧑‍🌾</span><span class='num'>{n_coach}</span></div><div class='lab' style='margin-left:40px'>Coachs</div></div>
-      <div><div class='stat'><span class='ic'>🌳</span><span class='num'>{fmt(hectares)}</span></div><div class='lab' style='margin-left:40px'>Hectares</div></div>
+    <div class='stats' style='display:flex; justify-content:flex-end; gap:34px; padding-bottom:4px'>
+      <div><div class='stat'><span class='ic'>📝</span><span class='num'>{n_fiches}</span></div><div class='lab'>Fiches</div></div>
+      <div><div class='stat'><span class='ic'>🧑‍🌾</span><span class='num'>{n_coach}</span></div><div class='lab'>Coachs</div></div>
+      <div><div class='stat'><span class='ic'>🌳</span><span class='num'>{fmt(hectares)}</span></div><div class='lab'>Hectares</div></div>
     </div>""")
 
 # --- Compteurs « x / objectif » --------------------------------------------
