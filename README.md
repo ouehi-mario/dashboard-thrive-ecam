@@ -77,10 +77,43 @@ des parcelles). Avec un dépôt **privé**, l'application est privée par défau
 
 ---
 
-## 3. Utilisation en ligne
+## 3. Publier les données pour tout le monde (administrateur)
 
-- Charger l'export Kobo via **⚙ Paramètres**. Le fichier reste dans la session du navigateur ;
-  il n'est **pas** enregistré sur le serveur et doit être rechargé après un rafraîchissement.
+L'administrateur charge l'export Kobo ; **tous les utilisateurs voient la mise à jour
+automatiquement** (vérification toutes les 30 secondes, sans rafraîchir la page).
+
+### Configuration (une seule fois)
+
+1. Créer un **second dépôt GitHub, PRIVÉ**, pour les données, par ex.
+   `ouehi-mario/dashboard-thrive-data` (cocher *Add a README* pour qu'il ne soit pas vide).
+2. Créer un jeton : GitHub → *Settings → Developer settings → Personal access tokens →
+   Fine-grained tokens → Generate new token*
+   - *Repository access* : **Only select repositories** → le dépôt de données
+   - *Permissions → Contents* : **Read and write**
+3. Dans Streamlit Cloud → *App → Settings → Secrets* :
+   ```toml
+   ADMIN_PASSWORD = "un_mot_de_passe_solide"
+   GITHUB_TOKEN   = "github_pat_..."
+   DATA_REPO      = "ouehi-mario/dashboard-thrive-data"
+   KOBO_TOKEN     = "..."          # facultatif (photos)
+   ```
+
+Sans `GITHUB_TOKEN` / `DATA_REPO`, la publication fonctionne aussi mais les données sont
+gardées sur le serveur uniquement : elles disparaissent à chaque redémarrage de l'application.
+
+### Publier
+
+1. **⚙ Paramètres → Espace administrateur** → saisir le mot de passe → *Se connecter*.
+2. Choisir l'export Kobo (.xlsx / .csv) → vérifier le nombre de lignes détectées.
+3. **📤 Publier pour tous les utilisateurs**.
+
+Chaque publication est enregistrée comme une version dans le dépôt de données
+(historique consultable et restaurable sur GitHub).
+
+## 3 bis. Utilisation
+
+- Les utilisateurs n'ont rien à charger : ils voient la dernière version publiée
+  (date affichée dans ⚙ Paramètres).
 - **Objectif** : 1 000 producteurs par défaut (modifiable dans ⚙ Paramètres).
 - **Photos des symptômes** : cliquer sur un symptôme. Si les photos ne s'affichent pas,
   vérifier le secret `KOBO_TOKEN` (ou le saisir dans ⚙ Paramètres).

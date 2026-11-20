@@ -515,20 +515,219 @@ def demo_data(n: int = 160, seed: int = 7) -> pd.DataFrame:
     return df
 
 
-def load() -> tuple[pd.DataFrame, pd.DataFrame, str]:
-    up = st.session_state.get("upload")
-    if up is not None:
-        raw = read_bytes(up.getvalue(), up.name)
-        return normalize(raw), raw, up.name
-    here = os.path.dirname(os.path.abspath(__file__))
-    files = sorted(glob.glob(os.path.join(here, "data", "*.xlsx")) + glob.glob(os.path.join(here, "data", "*.csv")),
+# ----------------------------------------------------------------------------
+# Données partagées : l'administrateur publie, tout le monde voit la même version
+#   1) GitHub (dépôt privé) si GITHUB_TOKEN + DATA_REPO sont configurés  → permanent
+#   2) sinon disque du serveur (data/shared)                              → perdu au redémarrage
+# ----------------------------------------------------------------------------
+HERE = os.path.dirname(os.path.abspath(__file__))
+SHARED_DIR = os.path.join(HERE, "data", "shared")
+SHARED_FILE = os.path.join(SHARED_DIR, "export_kobo.bin")
+SHARED_META = os.path.join(SHARED_DIR, "meta.json")
+
+
+def secret(key: str, default: str = "") -> str:
+    try:
+        v = st.secrets.get(key, None)
+    except Exception:  # pas de secrets.toml
+        v = None
+    return str(v if v is not None else os.environ.get(key, default)).strip()
+
+
+def gh_cfg() -> tuple[str, str, str, str] | None:
+    tok, repo = secret("GITHUB_TOKEN"), secret("DATA_REPO")
+    if not (tok and repo):
+        return None
+    return tok, repo, secret("DATA_PATH", "export_kobo.xlsx"), secret("DATA_BRANCH", "main")
+
+
+def _gh(method: str, path: str, **kw):
+    import requests
+
+    tok, repo, _, _ = gh_cfg()
+    headers = {"Authorization": f"Bearer {tok}", "X-GitHub-Api-Version": "2022-11-28",
+               "Accept": kw.pop("accept", "application/vnd.github+json")}
+    return requests.request(method, f"https://api.github.com/repos/{repo}/{path}", headers=headers,
+                            timeout=60, **kw)
+
+
+@st.cache_data(ttl=20, show_spinner=False)
+def remote_version() -> dict | None:
+    """Dernière version publiée sur GitHub (sha + date + auteur), vérifiée toutes les 20 s au plus."""
+    cfg = gh_cfg()
+    if not cfg:
+        return None
+    _, _, path, branch = cfg
+    r = _gh("GET", f"commits?path={path}&sha={branch}&per_page=1")
+    if r.status_code != 200 or not r.json():
+        return None
+    c = r.json()[0]
+    return {"sha": c["sha"], "date": c["commit"]["committer"]["date"], "message": c["commit"]["message"]}
+
+
+def gh_download() -> bytes | None:
+    _, _, path, branch = gh_cfg()
+    r = _gh("GET", f"contents/{path}?ref={branch}", accept="application/vnd.github.raw")
+    return r.content if r.status_code == 200 else None
+
+
+def gh_upload(data: bytes, message: str) -> tuple[bool, str]:
+    import base64
+
+    _, _, path, branch = gh_cfg()
+    cur = _gh("GET", f"contents/{path}?ref={branch}")
+    body = {"message": message, "content": base64.b64encode(data).decode(), "branch": branch}
+    if cur.status_code == 200:
+        body["sha"] = cur.json()["sha"]
+    r = _gh("PUT", f"contents/{path}", json=body)
+    if r.status_code in (200, 201):
+        return True, "ok"
+    return False, f"GitHub {r.status_code} : {r.text[:200]}"
+
+
+def _read_meta() -> dict:
+    import json
+
+    try:
+        with open(SHARED_META, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _write_local(data: bytes, meta: dict) -> None:
+    import json
+
+    os.makedirs(SHARED_DIR, exist_ok=True)
+    tmp = SHARED_FILE + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, SHARED_FILE)
+    with open(SHARED_META, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False)
+
+
+def publish(data: bytes, name: str, author: str = "administrateur") -> tuple[bool, str]:
+    """Publie un nouvel export pour tous les utilisateurs."""
+    now = pd.Timestamp.now(tz="UTC").isoformat()
+    msg = f"Mise à jour des données : {name} ({author})"
+    if gh_cfg():
+        ok, err = gh_upload(data, msg)
+        if not ok:
+            return False, err
+        remote_version.clear()
+        v = remote_version() or {}
+        _write_local(data, {"version": v.get("sha", now), "name": name, "date": now})
+        return True, "Données publiées pour tous les utilisateurs (sauvegarde GitHub)."
+    _write_local(data, {"version": now, "name": name, "date": now})
+    return True, "Données publiées pour tous les utilisateurs (stockage temporaire du serveur)."
+
+
+def current_version() -> str | None:
+    """Identifiant de la version partagée actuelle (change à chaque publication)."""
+    v = remote_version()
+    if v:
+        return v["sha"]
+    return _read_meta().get("version")
+
+
+def sync_shared() -> dict:
+    """S'assure que la copie locale correspond à la dernière version publiée ; renvoie ses métadonnées."""
+    v = remote_version()
+    meta = _read_meta()
+    if v and (meta.get("version") != v["sha"] or not os.path.exists(SHARED_FILE)):
+        data = gh_download()
+        if data:
+            name = v["message"].split(":", 1)[-1].split("(")[0].strip() or "export_kobo.xlsx"
+            meta = {"version": v["sha"], "name": name, "date": v["date"]}
+            _write_local(data, meta)
+    return meta if os.path.exists(SHARED_FILE) else {}
+
+
+@st.cache_data(show_spinner="Chargement des données…", max_entries=3)
+def load_shared(version: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    with open(SHARED_FILE, "rb") as f:
+        data = f.read()
+    name = "x.xlsx" if data[:2] == b"PK" or data[:4] == b"\xd0\xcf\x11\xe0" else "x.csv"  # xlsx / xls / csv
+    raw = read_bytes(data, name)
+    return normalize(raw), raw
+
+
+def load() -> tuple[pd.DataFrame, pd.DataFrame, str, dict]:
+    meta = sync_shared()
+    if meta:
+        norm, raw = load_shared(meta["version"])
+        return norm, raw, meta.get("name", "export Kobo"), meta
+    files = sorted(glob.glob(os.path.join(HERE, "data", "*.xlsx")) + glob.glob(os.path.join(HERE, "data", "*.csv")),
                    key=os.path.getmtime, reverse=True)
     if files:
         with open(files[0], "rb") as f:
             raw = read_bytes(f.read(), files[0])
-        return normalize(raw), raw, os.path.basename(files[0])
+        return normalize(raw), raw, os.path.basename(files[0]), {}
     d = demo_data()
-    return d, d, "Données de démonstration"
+    return d, d, "Données de démonstration", {}
+
+
+def is_admin() -> bool:
+    return bool(st.session_state.get("is_admin"))
+
+
+def admin_panel() -> None:
+    import hmac
+
+    pwd = secret("ADMIN_PASSWORD")
+    st.markdown("**🔐 Espace administrateur**")
+    if not pwd:
+        st.caption("Ajoutez `ADMIN_PASSWORD` dans les Secrets pour activer la publication des données.")
+        return
+    if not is_admin():
+        with st.form("login", border=False):
+            p = st.text_input("Mot de passe", type="password", label_visibility="collapsed",
+                              placeholder="Mot de passe administrateur")
+            if st.form_submit_button("Se connecter", width="stretch"):
+                if hmac.compare_digest(p.encode(), pwd.encode()):
+                    st.session_state["is_admin"] = True
+                    st.rerun()
+                else:
+                    st.error("Mot de passe incorrect.")
+        return
+    up = st.file_uploader("Nouvel export KoboToolbox (.xlsx / .csv)", type=["xlsx", "xls", "csv"], key="upload")
+    if up is not None:
+        try:
+            test = normalize(read_bytes(up.getvalue(), up.name))
+            st.caption(f"✓ {len(test)} lignes · {test['prod_code'].nunique()} producteurs détectés")
+            ok_file = len(test) > 0
+        except Exception as e:  # fichier illisible
+            st.error(f"Fichier illisible : {e}")
+            ok_file = False
+        if st.button("📤 Publier pour tous les utilisateurs", type="primary", width="stretch", disabled=not ok_file):
+            with st.spinner("Publication…"):
+                ok, msg = publish(up.getvalue(), up.name)
+            (st.success if ok else st.error)(msg)
+            if ok:
+                st.session_state.pop("data_version", None)
+                st.rerun()
+    st.caption("Stockage : " + ("**GitHub privé** ✓ (permanent)" if gh_cfg() else
+                                "⚠ **serveur uniquement** — perdu au redémarrage. Configurez `GITHUB_TOKEN` et `DATA_REPO`."))
+    st.text_input("Jeton API Kobo (photos)", type="password", key="kobo_token",
+                  help="Facultatif si KOBO_TOKEN est défini dans les Secrets.")
+    if st.button("Se déconnecter", width="stretch"):
+        st.session_state["is_admin"] = False
+        st.rerun()
+
+
+@st.fragment(run_every=30)
+def watch_updates() -> None:
+    """Vérifie toutes les 30 s si l'administrateur a publié de nouvelles données ; recharge si oui."""
+    try:
+        v = current_version()
+    except Exception:
+        return
+    seen = st.session_state.get("data_version")
+    if v and seen and v != seen:
+        st.session_state["data_version"] = v
+        st.toast("🔄 Nouvelles données publiées — mise à jour du tableau de bord.")
+        st.rerun(scope="app")
 
 
 # ----------------------------------------------------------------------------
@@ -650,13 +849,18 @@ with h2:
             default="Tableau de bord", label_visibility="collapsed") or "Tableau de bord"
 with h3:
     pop = st.popover("⚙ Paramètres", width="stretch")
-    with pop:
-        st.file_uploader("Export KoboToolbox (.xlsx / .csv)", type=["xlsx", "xls", "csv"], key="upload")
 
-df_all, raw, source = load()
+df_all, raw, source, meta = load()
+st.session_state.setdefault("data_version", meta.get("version"))
+if meta.get("version"):
+    st.session_state["data_version"] = meta["version"]
+watch_updates()
 
 with pop:
-    st.caption(f"Source : **{source}** · {len(df_all)} lignes")
+    maj = ""
+    if meta.get("date"):
+        maj = " · publiées le " + pd.Timestamp(meta["date"]).tz_convert("Africa/Abidjan").strftime("%d/%m/%Y à %H:%M")
+    st.caption(f"Données : **{source}** · {len(df_all)} lignes{maj}")
     sec_opts = sorted(df_all["section"].dropna().unique())
     coach_opts = sorted(df_all["agent_id"].dropna().unique())
     f_sec = st.multiselect("Sections", sec_opts)
@@ -666,10 +870,10 @@ with pop:
         f_dates = st.date_input("Période", (dmin, dmax), min_value=dmin, max_value=dmax)
     else:
         f_dates = ()
-    st.text_input("Jeton API Kobo (pour afficher les photos)", type="password", key="kobo_token",
-                  help="Kobo → Paramètres du compte → Sécurité → Clé API. Facultatif si les photos sont publiques.")
     objectif = st.number_input("Objectif (nombre de producteurs)", min_value=0, value=1000, step=50,
                                help="0 = pourcentage calculé sur les producteurs enquêtés.")
+    st.divider()
+    admin_panel()
 
 df = df_all.copy()
 if f_sec:
