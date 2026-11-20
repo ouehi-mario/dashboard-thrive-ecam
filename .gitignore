@@ -1,0 +1,21 @@
+# --- Données personnelles : ne JAMAIS publier -------------------------------
+data/
+*.xlsx
+*.xls
+*.csv
+
+# --- Secrets (clé API Kobo) ------------------------------------------------
+.streamlit/secrets.toml
+.env
+
+# --- Python ----------------------------------------------------------------
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# --- Éditeurs / système ----------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

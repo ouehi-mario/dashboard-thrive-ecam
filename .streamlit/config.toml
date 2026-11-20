@@ -1,0 +1,17 @@
+[theme]
+base = "light"
+primaryColor = "#5aa55a"
+backgroundColor = "#eef6ea"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#222222"
+
+[server]
+# Taille maximale d'un export Kobo chargé via « ⚙ Paramètres » (Mo)
+maxUploadSize = 200
+
+[client]
+# Masque le menu développeur pour les utilisateurs
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
