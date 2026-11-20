@@ -134,6 +134,20 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: #222; }
 [class*="st-key-dark"] button > div { justify-content:flex-start !important; width:100%; }
 [class*="st-key-dark"] button p { color:#fff !important; font-size:.86rem; text-align:left; }
 
+/* Entonnoir « Parcours producteur » (carte verte) */
+.fn-row { margin: 10px 0 14px; }
+.fn-lab { font-size:.85rem; color:rgba(255,255,255,.9); display:flex; justify-content:space-between; margin-bottom:5px; }
+.fn-conv { font-size:.72rem; background:rgba(255,255,255,.18); border-radius:99px; padding:1px 8px; }
+.fn-tr { position:relative; height:30px; border-radius:99px; background:rgba(255,255,255,.12); overflow:hidden; }
+.fn-tr > div { height:100%; border-radius:99px; background:linear-gradient(90deg, rgba(255,255,255,.85), rgba(255,255,255,.55)); }
+.fn-tr b { position:absolute; right:12px; top:4px; color:#fff; font-weight:500; font-size:.95rem; }
+
+/* Sélecteur de coopérative */
+.st-key-coop [data-testid="stButtonGroup"] { background: rgba(255,255,255,.6); border-radius:999px; padding:4px; display:inline-flex; }
+.st-key-coop button { border:none !important; border-radius:999px !important; background:transparent !important; font-size:.85rem; padding: 4px 16px !important; min-height:34px; font-weight:600; }
+.st-key-coop button[kind="segmented_controlActive"], .st-key-coop button[data-testid="stBaseButton-segmented_controlActive"] { background:#5aa55a !important; }
+.st-key-coop button[kind="segmented_controlActive"] p, .st-key-coop button[data-testid="stBaseButton-segmented_controlActive"] p { color:#fff !important; }
+
 /* Gros chiffres */
 .stat { display:flex; align-items:flex-end; gap:10px; }
 .stat .ic { width:30px; height:30px; border-radius:50%; background:rgba(255,255,255,.6); display:flex; align-items:center; justify-content:center; font-size:.85rem; margin-bottom:8px;}
@@ -537,11 +551,33 @@ def demo_data(n: int = 160, seed: int = 7) -> pd.DataFrame:
 # Données partagées : l'administrateur publie, tout le monde voit la même version
 #   1) GitHub (dépôt privé) si GITHUB_TOKEN + DATA_REPO sont configurés  → permanent
 #   2) sinon disque du serveur (data/shared)                              → perdu au redémarrage
+# Chaque fichier a son « emplacement » (slot) : ECAM = 1 export Kobo, UPAS = 3 fichiers.
 # ----------------------------------------------------------------------------
 HERE = os.path.dirname(os.path.abspath(__file__))
 SHARED_DIR = os.path.join(HERE, "data", "shared")
-SHARED_FILE = os.path.join(SHARED_DIR, "export_kobo.bin")
-SHARED_META = os.path.join(SHARED_DIR, "meta.json")
+
+SLOTS = {
+    "ecam": {"coop": "ECAM", "label": "Export Kobo ECAM", "path": "export_kobo.xlsx",
+             "file": "export_kobo.bin", "meta": "meta.json"},
+    "upas_eng": {"coop": "UPAS", "label": "UPAS · Engagements des ménages", "path": "upas/engagements_menages.xlsx"},
+    "upas_insp": {"coop": "UPAS", "label": "UPAS · Inspections CSSVD", "path": "upas/inspections_cssvd.xlsx"},
+    "upas_prom": {"coop": "UPAS", "label": "UPAS · Promesses de taille", "path": "upas/promesses_taille.xlsx"},
+}
+COOP_SLOTS = {"ECAM": ["ecam"], "UPAS": ["upas_eng", "upas_insp", "upas_prom"]}
+
+
+def classify(raw: pd.DataFrame) -> str | None:
+    """Reconnaît le type de fichier d'après ses colonnes."""
+    cols = {_norm(c) for c in raw.columns}
+    if "date engagement" in cols:
+        return "upas_eng"
+    if "date observation" in cols:
+        return "upas_insp"
+    if "date promesse" in cols:
+        return "upas_prom"
+    if any(c.startswith("producteur/") or c == "_submission_time" for c in cols):
+        return "ecam"
+    return None
 
 
 def secret(key: str, default: str = "") -> str:
@@ -552,17 +588,23 @@ def secret(key: str, default: str = "") -> str:
     return str(v if v is not None else os.environ.get(key, default)).strip()
 
 
-def gh_cfg() -> tuple[str, str, str, str] | None:
+def gh_cfg() -> tuple[str, str, str] | None:
     tok, repo = secret("GITHUB_TOKEN"), secret("DATA_REPO")
     if not (tok and repo):
         return None
-    return tok, repo, secret("DATA_PATH", "export_kobo.xlsx"), secret("DATA_BRANCH", "main")
+    return tok, repo, secret("DATA_BRANCH", "main")
+
+
+def slot_path(slot: str) -> str:
+    if slot == "ecam":
+        return secret("DATA_PATH", SLOTS["ecam"]["path"])
+    return SLOTS[slot]["path"]
 
 
 def _gh(method: str, path: str, **kw):
     import requests
 
-    tok, repo, _, _ = gh_cfg()
+    tok, repo, _ = gh_cfg()
     headers = {"Authorization": f"Bearer {tok}", "X-GitHub-Api-Version": "2022-11-28",
                "Accept": kw.pop("accept", "application/vnd.github+json")}
     return requests.request(method, f"https://api.github.com/repos/{repo}/{path}", headers=headers,
@@ -570,29 +612,27 @@ def _gh(method: str, path: str, **kw):
 
 
 @st.cache_data(ttl=20, show_spinner=False)
-def remote_version() -> dict | None:
-    """Dernière version publiée sur GitHub (sha + date + auteur), vérifiée toutes les 20 s au plus."""
+def remote_version(slot: str) -> dict | None:
+    """Dernière version publiée sur GitHub pour cet emplacement (vérifiée toutes les 20 s au plus)."""
     cfg = gh_cfg()
     if not cfg:
         return None
-    _, _, path, branch = cfg
-    r = _gh("GET", f"commits?path={path}&sha={branch}&per_page=1")
+    r = _gh("GET", f"commits?path={slot_path(slot)}&sha={cfg[2]}&per_page=1")
     if r.status_code != 200 or not r.json():
         return None
     c = r.json()[0]
     return {"sha": c["sha"], "date": c["commit"]["committer"]["date"], "message": c["commit"]["message"]}
 
 
-def gh_download() -> bytes | None:
-    _, _, path, branch = gh_cfg()
-    r = _gh("GET", f"contents/{path}?ref={branch}", accept="application/vnd.github.raw")
+def gh_download(slot: str) -> bytes | None:
+    r = _gh("GET", f"contents/{slot_path(slot)}?ref={gh_cfg()[2]}", accept="application/vnd.github.raw")
     return r.content if r.status_code == 200 else None
 
 
-def gh_upload(data: bytes, message: str) -> tuple[bool, str]:
+def gh_upload(slot: str, data: bytes, message: str) -> tuple[bool, str]:
     import base64
 
-    _, _, path, branch = gh_cfg()
+    path, branch = slot_path(slot), gh_cfg()[2]
     cur = _gh("GET", f"contents/{path}?ref={branch}")
     body = {"message": message, "content": base64.b64encode(data).decode(), "branch": branch}
     if cur.status_code == 200:
@@ -603,85 +643,119 @@ def gh_upload(data: bytes, message: str) -> tuple[bool, str]:
     return False, f"GitHub {r.status_code} : {r.text[:200]}"
 
 
-def _read_meta() -> dict:
+def _local(slot: str) -> tuple[str, str]:
+    s = SLOTS[slot]
+    return (os.path.join(SHARED_DIR, s.get("file", f"{slot}.bin")),
+            os.path.join(SHARED_DIR, s.get("meta", f"{slot}.json")))
+
+
+def _read_meta(slot: str) -> dict:
     import json
 
     try:
-        with open(SHARED_META, encoding="utf-8") as f:
+        with open(_local(slot)[1], encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
 
 
-def _write_local(data: bytes, meta: dict) -> None:
+def _write_local(slot: str, data: bytes, meta: dict) -> None:
     import json
 
     os.makedirs(SHARED_DIR, exist_ok=True)
-    tmp = SHARED_FILE + ".tmp"
+    fpath, mpath = _local(slot)
+    tmp = fpath + ".tmp"
     with open(tmp, "wb") as f:
         f.write(data)
-    os.replace(tmp, SHARED_FILE)
-    with open(SHARED_META, "w", encoding="utf-8") as f:
+    os.replace(tmp, fpath)
+    with open(mpath, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False)
 
 
-def publish(data: bytes, name: str, author: str = "administrateur") -> tuple[bool, str]:
-    """Publie un nouvel export pour tous les utilisateurs."""
+def publish(slot: str, data: bytes, name: str, author: str = "administrateur") -> tuple[bool, str]:
+    """Publie un fichier pour tous les utilisateurs."""
     now = pd.Timestamp.now(tz="UTC").isoformat()
     msg = f"Mise à jour des données : {name} ({author})"
     if gh_cfg():
-        ok, err = gh_upload(data, msg)
+        ok, err = gh_upload(slot, data, msg)
         if not ok:
             return False, err
         remote_version.clear()
-        v = remote_version() or {}
-        _write_local(data, {"version": v.get("sha", now), "name": name, "date": now})
-        return True, "Données publiées pour tous les utilisateurs (sauvegarde GitHub)."
-    _write_local(data, {"version": now, "name": name, "date": now})
-    return True, "Données publiées pour tous les utilisateurs (stockage temporaire du serveur)."
+        v = remote_version(slot) or {}
+        _write_local(slot, data, {"version": v.get("sha", now), "name": name, "date": now})
+        return True, f"{SLOTS[slot]['label']} : publié (sauvegarde GitHub)."
+    _write_local(slot, data, {"version": now, "name": name, "date": now})
+    return True, f"{SLOTS[slot]['label']} : publié (stockage temporaire du serveur)."
 
 
-def current_version() -> str | None:
-    """Identifiant de la version partagée actuelle (change à chaque publication)."""
-    v = remote_version()
-    if v:
-        return v["sha"]
-    return _read_meta().get("version")
+def current_version(slots: tuple[str, ...]) -> str:
+    """Identifiant combiné des versions publiées (change dès qu'un des fichiers est republié)."""
+    out = []
+    for s in slots:
+        v = remote_version(s)
+        out.append(v["sha"] if v else _read_meta(s).get("version", ""))
+    return "|".join(out)
 
 
-def sync_shared() -> dict:
-    """S'assure que la copie locale correspond à la dernière version publiée ; renvoie ses métadonnées."""
-    v = remote_version()
-    meta = _read_meta()
-    if v and (meta.get("version") != v["sha"] or not os.path.exists(SHARED_FILE)):
-        data = gh_download()
+def sync_slot(slot: str) -> dict:
+    """Aligne la copie locale sur la dernière version publiée ; renvoie ses métadonnées ({} si rien)."""
+    v = remote_version(slot)
+    meta = _read_meta(slot)
+    fpath = _local(slot)[0]
+    if v and (meta.get("version") != v["sha"] or not os.path.exists(fpath)):
+        data = gh_download(slot)
         if data:
-            name = v["message"].split(":", 1)[-1].split("(")[0].strip() or "export_kobo.xlsx"
+            name = v["message"].split(":", 1)[-1].split("(")[0].strip() or os.path.basename(slot_path(slot))
             meta = {"version": v["sha"], "name": name, "date": v["date"]}
-            _write_local(data, meta)
-    return meta if os.path.exists(SHARED_FILE) else {}
+            _write_local(slot, data, meta)
+    return meta if os.path.exists(fpath) else {}
 
 
-@st.cache_data(show_spinner="Chargement des données…", max_entries=3)
-def load_shared(version: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-    with open(SHARED_FILE, "rb") as f:
+def _sniff_name(data: bytes) -> str:
+    return "x.xlsx" if data[:2] == b"PK" or data[:4] == b"\xd0\xcf\x11\xe0" else "x.csv"  # xlsx / xls / csv
+
+
+@st.cache_data(show_spinner="Chargement des données…", max_entries=8)
+def load_slot_raw(slot: str, version: str) -> pd.DataFrame:
+    with open(_local(slot)[0], "rb") as f:
         data = f.read()
-    name = "x.xlsx" if data[:2] == b"PK" or data[:4] == b"\xd0\xcf\x11\xe0" else "x.csv"  # xlsx / xls / csv
-    raw = read_bytes(data, name)
-    return normalize(raw), raw
+    return read_bytes(data, _sniff_name(data))
+
+
+@st.cache_data(show_spinner=False, max_entries=32)
+def read_path(path: str, mtime: float) -> pd.DataFrame:
+    with open(path, "rb") as f:
+        return read_bytes(f.read(), path)
+
+
+def local_files(slot: str) -> list[str]:
+    """Fichiers du dossier data/ reconnus comme appartenant à cet emplacement (le plus récent d'abord)."""
+    files = glob.glob(os.path.join(HERE, "data", "*.xlsx")) + glob.glob(os.path.join(HERE, "data", "*.csv"))
+    hits = []
+    for p in files:
+        try:
+            if classify(read_path(p, os.path.getmtime(p))) == slot:
+                hits.append(p)
+        except Exception:
+            continue
+    return sorted(hits, key=os.path.getmtime, reverse=True)
+
+
+def load_slot(slot: str) -> tuple[pd.DataFrame | None, str, dict]:
+    """Données d'un emplacement : version publiée, sinon fichier local du dossier data/, sinon None."""
+    meta = sync_slot(slot)
+    if meta:
+        return load_slot_raw(slot, meta["version"]), meta.get("name", SLOTS[slot]["label"]), meta
+    files = local_files(slot)
+    if files:
+        return read_path(files[0], os.path.getmtime(files[0])), os.path.basename(files[0]), {}
+    return None, "", {}
 
 
 def load() -> tuple[pd.DataFrame, pd.DataFrame, str, dict]:
-    meta = sync_shared()
-    if meta:
-        norm, raw = load_shared(meta["version"])
-        return norm, raw, meta.get("name", "export Kobo"), meta
-    files = sorted(glob.glob(os.path.join(HERE, "data", "*.xlsx")) + glob.glob(os.path.join(HERE, "data", "*.csv")),
-                   key=os.path.getmtime, reverse=True)
-    if files:
-        with open(files[0], "rb") as f:
-            raw = read_bytes(f.read(), files[0])
-        return normalize(raw), raw, os.path.basename(files[0]), {}
+    raw, name, meta = load_slot("ecam")
+    if raw is not None:
+        return normalize(raw), raw, name, meta
     d = demo_data()
     return d, d, "Données de démonstration", {}
 
@@ -709,21 +783,32 @@ def admin_panel() -> None:
                 else:
                     st.error("Mot de passe incorrect.")
         return
-    up = st.file_uploader("Nouvel export KoboToolbox (.xlsx / .csv)", type=["xlsx", "xls", "csv"], key="upload")
-    if up is not None:
+    ups = st.file_uploader("Fichiers de données (.xlsx / .csv) — ECAM ou UPAS, un ou plusieurs",
+                           type=["xlsx", "xls", "csv"], key="upload", accept_multiple_files=True)
+    ready = []
+    for up in ups or []:
         try:
-            test = normalize(read_bytes(up.getvalue(), up.name))
-            st.caption(f"✓ {len(test)} lignes · {test['prod_code'].nunique()} producteurs détectés")
-            ok_file = len(test) > 0
+            rawf = read_bytes(up.getvalue(), up.name)
+            slot = classify(rawf)
         except Exception as e:  # fichier illisible
-            st.error(f"Fichier illisible : {e}")
-            ok_file = False
-        if st.button("📤 Publier pour tous les utilisateurs", type="primary", width="stretch", disabled=not ok_file):
+            st.error(f"{up.name} : illisible ({e})")
+            continue
+        if slot is None or rawf.empty:
+            st.error(f"{up.name} : type de fichier non reconnu (ni export ECAM, ni fichier UPAS).")
+            continue
+        st.caption(f"✓ **{up.name}** → {SLOTS[slot]['label']} · {len(rawf)} lignes")
+        ready.append((slot, up))
+    if ups:
+        if st.button(f"📤 Publier {len(ready)} fichier(s) pour tous", type="primary", width="stretch",
+                     disabled=not ready):
+            msgs, all_ok = [], True
             with st.spinner("Publication…"):
-                ok, msg = publish(up.getvalue(), up.name)
-            (st.success if ok else st.error)(msg)
-            if ok:
-                st.session_state.pop("data_version", None)
+                for slot, up in ready:
+                    ok, msg = publish(slot, up.getvalue(), up.name)
+                    all_ok &= ok
+                    msgs.append(("✓ " if ok else "✗ ") + msg)
+            (st.success if all_ok else st.error)("\n\n".join(msgs))
+            if all_ok:
                 st.rerun()
     st.caption("Stockage : " + ("**GitHub privé** ✓ (permanent)" if gh_cfg() else
                                 "⚠ **serveur uniquement** — perdu au redémarrage. Configurez `GITHUB_TOKEN` et `DATA_REPO`."))
@@ -735,15 +820,17 @@ def admin_panel() -> None:
 
 
 @st.fragment(run_every=30)
-def watch_updates() -> None:
+def watch_updates(slots: tuple[str, ...], key: str) -> None:
     """Vérifie toutes les 30 s si l'administrateur a publié de nouvelles données ; recharge si oui."""
     try:
-        v = current_version()
+        v = current_version(slots)
     except Exception:
         return
-    seen = st.session_state.get("data_version")
-    if v and seen and v != seen:
-        st.session_state["data_version"] = v
+    seen = st.session_state.get(key)
+    if seen is None:
+        st.session_state[key] = v
+    elif v != seen:
+        st.session_state[key] = v
         st.toast("🔄 Nouvelles données publiées — mise à jour du tableau de bord.")
         st.rerun(scope="app")
 
@@ -852,27 +939,530 @@ def initials(name: str) -> str:
 
 
 # ----------------------------------------------------------------------------
+# UPAS — 3 fichiers liés par le code producteur :
+#   engagements des ménages → inspections CSSVD → promesses de taille
+# (contacts téléphoniques et noms des conjointes volontairement non chargés)
+# ----------------------------------------------------------------------------
+UPAS_STEPS = {"eng": ("Engagement du ménage", GREEN_L), "insp": ("Inspection CSSVD", GREEN),
+              "prom": ("Promesse de taille", DARK)}
+MOIS_ABR = {f"{i + 1:02d}": m for i, m in enumerate(MOIS)}
+
+
+def _col(raw: pd.DataFrame, name: str) -> pd.Series:
+    """Colonne par nom (insensible aux accents / majuscules) ; série vide si absente."""
+    want = _norm(name)
+    for c in raw.columns:
+        if _norm(c) == want:
+            return raw[c]
+    return pd.Series(pd.NA, index=raw.index)
+
+
+def _txt(s: pd.Series) -> pd.Series:
+    t = s.astype("string").str.strip()
+    return t.mask(t.isin(["", "0", "nan", "None"]))
+
+
+def _gps(s: pd.Series) -> tuple[pd.Series, pd.Series]:
+    parts = s.astype("string").str.split(",", n=1, expand=True)
+    if parts.shape[1] < 2:
+        return pd.Series(np.nan, index=s.index), pd.Series(np.nan, index=s.index)
+    return _num(parts[0]), _num(parts[1])
+
+
+def _base(raw: pd.DataFrame, date_col: str) -> pd.DataFrame:
+    d = pd.DataFrame(index=raw.index)
+    d["code"] = _txt(_col(raw, "Code Producteur"))
+    d["parcelle"] = _txt(_col(raw, "Code Parcelle"))
+    d["section"] = _txt(_col(raw, "Section")).str.upper()
+    d["localite"] = _txt(_col(raw, "Localite")).str.title()
+    d["date"] = pd.to_datetime(_col(raw, date_col), errors="coerce")
+    d["synchro"] = pd.to_datetime(_col(raw, "Synchro le"), errors="coerce")
+    d["lat"], d["lon"] = _gps(_col(raw, "Position GPS"))
+    return d
+
+
+def upas_eng(raw: pd.DataFrame) -> pd.DataFrame:
+    d = _base(raw, "Date Engagement")
+    d["menage"] = _txt(_col(raw, "Type Menage"))
+    d["superficie"] = _num(_col(raw, "Superficie Totale"))
+    d["conjointe"] = _txt(_col(raw, "Nom Conjointe")).notna()  # seulement Oui/Non, pas le nom
+    return d
+
+
+def upas_insp(raw: pd.DataFrame) -> pd.DataFrame:
+    d = _base(raw, "Date Observation")
+    d["connait_signes"] = _oui(_col(raw, "Producteur Connait Signes"))
+    d["signes"] = _oui(_col(raw, "Parcelle Presente Signes"))
+    d["foyers"] = _oui(_col(raw, "Presence Foyers Cssvd"))
+    d["nb_foyers"] = _num(_col(raw, "Nombre Foyers"))
+    d["arbres_foyer"] = _num(_col(raw, "Arbres Infestes Par Foyer"))
+    d["sympt_princ"] = _txt(_col(raw, "Symptomes Principaux"))
+    d["sympt_sec"] = _txt(_col(raw, "Symptomes Secondaires"))
+    d["annee_signes"] = _num(_col(raw, "Annee Apparition Signes"))
+    d["coop_informee"] = _oui(_col(raw, "Cooperative Informee"))
+    d["superficie"] = _num(_col(raw, "Superficie Totale Visitee"))
+    d["age"] = _num(_col(raw, "Age Moyen Cacaoyers"))
+    d["varietes"] = _txt(_col(raw, "Varietes Cultivees"))
+    d["densite"] = _txt(_col(raw, "Densite Plantation"))
+    d["dec_signes"] = _oui(_col(raw, "Decision Signes Visibles"))
+    d["dec_voisines"] = _oui(_col(raw, "Decision Parcelles Voisines"))
+    d["etat"] = _txt(_col(raw, "Etat Parcelle"))
+    d["agrofo"] = _txt(_col(raw, "Pratiques Agroforesterie"))
+    return d
+
+
+def upas_prom(raw: pd.DataFrame) -> pd.DataFrame:
+    d = _base(raw, "Date Promesse")
+    d["sup_tailler"] = _num(_col(raw, "Superficie A Tailler"))
+    d["periode"] = _txt(_col(raw, "Periode Souhaitee"))
+    d["accepte"] = _num(_col(raw, "Engagement Accepte")) == 1
+    d["contribution"] = _oui(_col(raw, "Contribution Expliquee"))
+    d["inspection"] = _oui(_col(raw, "Inspection Cssvd Realisee"))
+    d["eligible"] = _oui(_col(raw, "Parcelle Eligible"))
+    return d
+
+
+def periode_label(p) -> str:
+    s = str(p)
+    if re.fullmatch(r"\d{4}-\d{2}", s):
+        return f"{MOIS_ABR.get(s[5:], s[5:])} {s[:4]}"
+    return s
+
+
+def split_counts(s: pd.Series) -> pd.Series:
+    """Compte les réponses à choix multiples « a | b | c »."""
+    items = s.dropna().astype(str).str.split(r"\s*\|\s*").explode().str.strip()
+    return items[items != ""].value_counts()
+
+
+def upas_suivi(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame) -> pd.DataFrame:
+    """Une ligne par producteur : où en est-il dans le parcours ?"""
+    frames = [t[["code", "section", "localite", "lat", "lon"]] for t in (eng, insp, prom) if not t.empty]
+    if not frames:
+        return pd.DataFrame()
+    base = pd.concat(frames).dropna(subset=["code"]).groupby("code").first()
+    e = eng.dropna(subset=["code"]).groupby("code").agg(date_eng=("date", "min"), menage=("menage", "first"),
+                                                        superficie=("superficie", "max"), conjointe=("conjointe", "max"))
+    i = insp.dropna(subset=["code"]).groupby("code").agg(date_insp=("date", "min"), signes=("signes", "max"),
+                                                         age=("age", "max"), densite=("densite", "first"))
+    p = prom.dropna(subset=["code"]).groupby("code").agg(date_prom=("date", "min"), periode=("periode", "first"),
+                                                         eligible=("eligible", "max"))
+    s = base.join(e).join(i).join(p)
+    s["engage"] = s.index.isin(e.index)
+    s["inspecte"] = s.index.isin(i.index)
+    s["promesse"] = s.index.isin(p.index)
+    s["complet"] = s["engage"] & s["inspecte"] & s["promesse"]
+
+    def etape(r) -> str:
+        if r.complet:
+            return "✅ Parcours complet"
+        if r.promesse and not r.inspecte:
+            return "⚠ Promesse sans inspection"
+        if r.inspecte and not r.promesse:
+            return "🔍 Inspecté — promesse à faire"
+        if r.engage and not r.inspecte:
+            return "📝 Engagé — inspection à faire"
+        return "Autre"
+
+    s["etape"] = s.apply(etape, axis=1)
+    return s.reset_index()
+
+
+def upas_filter(d: pd.DataFrame, secs: list, dates) -> pd.DataFrame:
+    if d.empty:
+        return d
+    if secs:
+        d = d[d["section"].isin(secs)]
+    if isinstance(dates, (tuple, list)) and len(dates) == 2:
+        d = d[d["date"].isna() | d["date"].dt.date.between(dates[0], dates[1])]
+    return d
+
+
+def funnel_html(steps: list[tuple[str, int]]) -> str:
+    top = max(steps[0][1], 1)
+    out = []
+    prev = None
+    for lab, v in steps:
+        w = v / top * 100
+        conv = f"<span class='fn-conv'>{v / prev * 100:.0f}%</span>" if prev else ""
+        out.append(f"<div class='fn-row'><div class='fn-lab'>{lab}{conv}</div>"
+                   f"<div class='fn-tr'><div style='width:{max(w, 3):.0f}%'></div><b>{v}</b></div></div>")
+        prev = v or None
+    return "".join(out)
+
+
+def section_progress(suivi: pd.DataFrame) -> go.Figure:
+    g = suivi.groupby("section")[["engage", "inspecte", "promesse"]].sum().sort_values("engage")
+    fig = go.Figure()
+    for col, (lab, colr) in zip(["engage", "inspecte", "promesse"], UPAS_STEPS.values()):
+        fig.add_bar(y=g.index, x=g[col], name=lab, orientation="h", marker=dict(color=colr, cornerradius=5),
+                    text=g[col], textposition="inside", insidetextanchor="end")
+    fig.update_layout(barmode="group", bargap=.25, legend=dict(orientation="h", y=1.1, x=0))
+    fig.update_xaxes(visible=False)
+    base_layout(fig, 60 + 46 * len(g)).update_layout(showlegend=True, margin=dict(l=0, r=0, t=30, b=0))
+    return fig
+
+
+def render_upas(page: str, pop) -> None:
+    raws = {s: load_slot(s) for s in COOP_SLOTS["UPAS"]}
+    watch_updates(tuple(COOP_SLOTS["UPAS"]), "data_version_UPAS")
+    eng_all = upas_eng(raws["upas_eng"][0]) if raws["upas_eng"][0] is not None else upas_eng(pd.DataFrame())
+    insp_all = upas_insp(raws["upas_insp"][0]) if raws["upas_insp"][0] is not None else upas_insp(pd.DataFrame())
+    prom_all = upas_prom(raws["upas_prom"][0]) if raws["upas_prom"][0] is not None else upas_prom(pd.DataFrame())
+
+    with pop:
+        for s, (r, name, meta) in raws.items():
+            maj = ""
+            if meta.get("date"):
+                maj = " · " + pd.Timestamp(meta["date"]).tz_convert("Africa/Abidjan").strftime("%d/%m %H:%M")
+            st.caption(f"{SLOTS[s]['label'].split('· ')[1]} : **{name or 'aucun fichier'}**"
+                       f"{f' · {len(r)} lignes' if r is not None else ''}{maj}")
+        secs = sorted(set(pd.concat([eng_all["section"], insp_all["section"], prom_all["section"]]).dropna()))
+        f_sec = st.multiselect("Sections", secs, key="upas_sec")
+        alld = pd.concat([eng_all["date"], insp_all["date"], prom_all["date"]]).dropna()
+        f_dates = ()
+        if not alld.empty:
+            dmin, dmax = alld.min().date(), alld.max().date()
+            f_dates = st.date_input("Période", (dmin, dmax), min_value=dmin, max_value=dmax, key="upas_dates")
+        objectif = st.number_input("Objectif (nombre de producteurs)", min_value=0, value=1000, step=50,
+                                   key="upas_obj")
+        st.divider()
+        admin_panel()
+
+    if all(r is None for r, _, _ in raws.values()):
+        st.info("Aucune donnée UPAS publiée pour le moment. L'administrateur peut charger les 3 fichiers "
+                "(engagements, inspections CSSVD, promesses de taille) dans ⚙ Paramètres.")
+        return
+
+    eng, insp, prom = (upas_filter(t, f_sec, f_dates) for t in (eng_all, insp_all, prom_all))
+    suivi = upas_suivi(eng, insp, prom)
+    n_eng, n_insp, n_prom = eng["code"].nunique(), insp["code"].nunique(), prom["code"].nunique()
+    n_suivis = len(suivi)
+    n_complet = int(suivi["complet"].sum()) if n_suivis else 0
+    cible = objectif or max(n_suivis, 1)
+    hectares = eng.drop_duplicates("code")["superficie"].sum()
+
+    # --- Bienvenue + pills ------------------------------------------------------
+    w1, w2 = st.columns([1.55, 1], vertical_alignment="bottom")
+    with w1:
+        k_eng, k_insp, k_prom = n_eng / cible, n_insp / cible, n_prom / cible
+        html(f"""
+        <div class='welcome'>Bienvenue, <span style='color:#3e7a3c'>UPAS</span></div>
+        <div class='kp-row'>
+          <div class='kp'><span class='kp-lab'>Engagement du ménage</span>
+            <div class='kp-pill kp-striped'><div class='kp-fill' style='width:{min(k_eng * 100, 100):.1f}%'></div>
+            <span>{pct(k_eng)}</span></div></div>
+          <div class='kp'><span class='kp-lab'>Inspection CSSVD</span>
+            <div class='kp-pill kp-green'><span>{pct(k_insp)}</span></div></div>
+          <div class='kp'><span class='kp-lab'>Promesse de taille</span>
+            <div class='kp-pill kp-dark'><span>{pct(k_prom)}</span></div></div>
+        </div>""")
+    with w2:
+        n_sec = suivi["section"].nunique() if n_suivis else 0
+        n_loc = suivi["localite"].nunique() if n_suivis else 0
+        html(f"""
+        <div style='display:flex; justify-content:flex-end; gap:34px; padding-bottom:4px'>
+          <div><div class='stat'><span class='ic'>🗺️</span><span class='num'>{n_sec}</span></div><div class='lab' style='margin-left:40px'>Sections</div></div>
+          <div><div class='stat'><span class='ic'>🏘️</span><span class='num'>{n_loc}</span></div><div class='lab' style='margin-left:40px'>Localités</div></div>
+          <div><div class='stat'><span class='ic'>🌳</span><span class='num'>{fmt(hectares)}</span></div><div class='lab' style='margin-left:40px'>Hectares</div></div>
+        </div>""")
+
+    compteurs = [
+        ("Producteurs suivis", n_suivis, "#8fcf86"),
+        ("Engagement du ménage", n_eng, GREEN),
+        ("Inspection CSSVD", n_insp, "#1f6a24"),
+        ("Promesse de taille", n_prom, DARK),
+        ("Parcours complet", n_complet, "#c9a227"),
+    ]
+    html("<div class='cnt-row'>" + "".join(
+        f"<div class='cnt' style='--c:{c}'><div class='n'>{v}<small>/{fmt(cible)}</small></div>"
+        f"<div class='lb'>{lab}</div><div class='tr'><div style='width:{min(v / cible * 100, 100):.1f}%'></div></div>"
+        f"<div class='pc'>{v / cible * 100:.1f} % de l'objectif</div></div>" for lab, v, c in compteurs) + "</div>")
+    st.write("")
+
+    ins_ok = insp["signes"].notna().sum()
+    n_signes = int((insp["signes"] == True).sum())  # noqa: E712
+    r_sain = (ins_ok - n_signes) / ins_ok if ins_ok else np.nan
+
+    # ======================================================================
+    if page == "Tableau de bord":
+        left, right = st.columns([3, 1.05], gap="medium")
+        with left:
+            a1, a2, a3 = st.columns(3, gap="medium")
+            with a1, st.container(key="card_profile"):
+                html(f"""<div class='muted' style='color:rgba(255,255,255,.85)'>🧭 Parcours producteur</div>
+                <div style='margin-top:14px'>{funnel_html([("Engagés", n_eng), ("Inspectés", n_insp),
+                                                           ("Promesse", n_prom), ("Complet", n_complet)])}</div>""")
+            events = pd.concat([eng[["date"]].assign(agent_id="Engagement"),
+                                insp[["date"]].assign(agent_id="Inspection"),
+                                prom[["date"]].assign(agent_id="Promesse")])
+            fig, week = activity_chart(events)
+            with a2, st.container(key="card_activity"):
+                html(f"""<span class='arrow-btn'>↗</span><p class='card-title'>Activité</p>
+                <div style='display:flex; align-items:center; gap:12px; margin-top:8px'>
+                  <span class='big'>{week}</span><span class='muted'>fiches<br>7 derniers jours</span></div>""")
+                st.plotly_chart(fig, config=CFG, width="stretch")
+            with a3, st.container(key="card_ring"):
+                html("<span class='arrow-btn'>↗</span><p class='card-title'>Parcelles saines</p>")
+                st.plotly_chart(ring_chart(r_sain, "sans signes de CSSVD"), config=CFG, width="stretch")
+                n_foy = int((insp["foyers"] == True).sum())  # noqa: E712
+                html(f"""<div style='display:flex; gap:8px; justify-content:center; flex-wrap:wrap'>
+                <span class='cal-chip'>✓ Saines · {ins_ok - n_signes}</span><span class='cal-chip'>⚠ Signes · {n_signes}</span>
+                <span class='cal-chip' style='background:#2c2c2c;color:#fff'>Foyers · {n_foy}</span></div>""")
+
+            b1, b2 = st.columns([1, 2], gap="medium")
+            with b1, st.container(key="card_accordion"):
+                with st.expander("Producteurs par section", expanded=True):
+                    html(minibars(suivi["section"].value_counts().head(8), n_suivis))
+                with st.expander("Type de ménage"):
+                    html(minibars(eng["menage"].value_counts()))
+                with st.expander("Variétés cultivées"):
+                    html(minibars(split_counts(insp["varietes"])))
+                with st.expander("Densité de plantation"):
+                    html(minibars(insp["densite"].value_counts()))
+                with st.expander("Ménages avec conjointe"):
+                    html(minibars(eng.drop_duplicates("code")["conjointe"].map({True: "Avec conjointe",
+                                                                                False: "Sans conjointe"}).value_counts()))
+            with b2, st.container(key="card_sections"):
+                html("<p class='card-title'>Avancement par section</p>")
+                if n_suivis:
+                    st.plotly_chart(section_progress(suivi), config=CFG, width="stretch")
+
+        with right:
+            per = prom["periode"].value_counts().sort_index()
+            tot = max(int(per.sum()), 1)
+            seg_cols = [GREEN, DARK, GREY, GREEN_L, "#3e7a3c"]
+            seg = "".join(
+                f"<div style='flex:{max(v / tot, .1):.3f}'><span class='muted' style='color:#333'>{v / tot * 100:.0f}%</span>"
+                f"<div class='bar' style='background:{seg_cols[i % 5]}'>{periode_label(k).split()[0] if v / tot > .2 else ''}</div></div>"
+                for i, (k, v) in enumerate(per.items()))
+            with st.container(key="card_docs"):
+                html(f"""<div style='display:flex; justify-content:space-between; align-items:center'>
+                <p class='card-title'>Période de taille</p><span class='big' style='font-size:2rem'>{int(prom['sup_tailler'].sum())} ha</span></div>
+                <div class='seg'>{seg}</div>""")
+            etats = split_counts(insp["etat"]).head(7)
+            icons = ["🌿", "🐛", "🌳", "☀️", "💧", "🍂", "🪓"]
+            items = "".join(
+                f"<div class='task'><div class='ic on'>{icons[i % 7]}</div><div><div class='t1'>{k}</div>"
+                f"<div class='t2'>{v} parcelle{'s' if v > 1 else ''} · {v / max(len(insp), 1) * 100:.0f}%</div></div>"
+                f"<div class='ck on'>✓</div></div>" for i, (k, v) in enumerate(etats.items()))
+            with st.container(key="dark_etat"):
+                html(f"""<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:6px'>
+                <span style='font-size:1.25rem'>État des parcelles</span><span style='font-size:2rem;font-weight:300'>{len(insp)}</span></div>
+                <div class='t2' style='color:#a8a8a8;font-size:.78rem;margin-bottom:6px'>observations lors des inspections CSSVD</div>
+                {items}""")
+
+    # ======================================================================
+    elif page == "Suivi producteurs":
+        c1, c2 = st.columns([1, 1.4], gap="medium")
+        with c1, st.container(key="card_u_etape"):
+            html("<p class='card-title'>Où en sont les producteurs ?</p>")
+            if n_suivis:
+                st.plotly_chart(bar_h(suivi["etape"].value_counts(), 260), config=CFG, width="stretch")
+        with c2, st.container(key="card_u_sec"):
+            html("<p class='card-title'>Avancement par section</p>")
+            if n_suivis:
+                st.plotly_chart(section_progress(suivi), config=CFG, width="stretch")
+        with st.container(key="card_u_table"):
+            html("<p class='card-title'>🧾 Liste de suivi des producteurs</p>"
+                 "<div class='muted'>1 ligne = 1 producteur · ce qui est fait et ce qui reste à faire</div>")
+            e1, e2 = st.columns(2)
+            f_et = e1.multiselect("Étape", sorted(suivi["etape"].unique()) if n_suivis else [], key="u_et")
+            q = e2.text_input("Rechercher", placeholder="Code producteur, localité…", key="u_q")
+            t = pd.DataFrame({
+                "Code producteur": suivi["code"], "Section": suivi["section"], "Localité": suivi["localite"],
+                "Étape": suivi["etape"], "Type de ménage": suivi["menage"],
+                "Superficie (ha)": suivi["superficie"].round(2),
+                "Engagé le": suivi["date_eng"].dt.strftime("%d/%m/%Y"),
+                "Inspecté le": suivi["date_insp"].dt.strftime("%d/%m/%Y"),
+                "Signes CSSVD": suivi["signes"].map({True: "Oui", False: "Non"}),
+                "Promesse le": suivi["date_prom"].dt.strftime("%d/%m/%Y"),
+                "Période de taille": suivi["periode"].map(lambda p: periode_label(p) if pd.notna(p) else pd.NA),
+                "Latitude": suivi["lat"], "Longitude": suivi["lon"],
+            }) if n_suivis else pd.DataFrame()
+            if f_et:
+                t = t[t["Étape"].isin(f_et)]
+            if q and not t.empty:
+                t = t[t.astype(str).apply(lambda c: c.str.contains(q, case=False, regex=False)).any(axis=1)]
+            st.dataframe(t, width="stretch", hide_index=True, height=420)
+            stamp = pd.Timestamp.now().strftime("%Y%m%d")
+            d1, d2, _ = st.columns([1, 1, 2])
+            d1.download_button("⬇ Exporter Excel", to_xlsx(t, "Suivi UPAS"), file_name=f"upas_suivi_{stamp}.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               type="primary", width="stretch", disabled=t.empty)
+            d2.download_button("⬇ Exporter CSV", t.to_csv(index=False, sep=";").encode("utf-8-sig"),
+                               file_name=f"upas_suivi_{stamp}.csv", mime="text/csv", width="stretch", disabled=t.empty)
+
+    # ======================================================================
+    elif page == "Inspections":
+        if insp.empty:
+            st.info("Aucune inspection CSSVD dans les données filtrées.")
+            return
+        c1, c2, c3 = st.columns(3, gap="medium")
+        with c1, st.container(key="card_i_ring"):
+            html("<p class='card-title'>Parcelles saines</p>")
+            st.plotly_chart(ring_chart(r_sain, f"{ins_ok - n_signes} / {ins_ok} parcelles"), config=CFG, width="stretch")
+        with c2, st.container(key="card_i_age"):
+            html("<p class='card-title'>Âge moyen des cacaoyers</p>")
+            bins = pd.cut(insp["age"], [0, 10, 20, 30, 40, 200], labels=["< 10 ans", "10-19", "20-29", "30-39", "40 ans +"],
+                          right=False)
+            st.plotly_chart(bar_h(bins.value_counts().sort_index(ascending=False), 260, DARK), config=CFG, width="stretch")
+            html(f"<div class='muted' style='text-align:center'>Moyenne : <b>{insp['age'].mean():.0f} ans</b></div>")
+        with c3, st.container(key="card_i_conn"):
+            html("<p class='card-title'>Connaissances & décisions</p>")
+            facts = [
+                ("Producteur connaît les signes", insp["connait_signes"]),
+                ("Signes visibles sur la parcelle", insp["signes"]),
+                ("Foyers de CSSVD", insp["foyers"]),
+                ("Décision : signes visibles", insp["dec_signes"]),
+                ("Décision : parcelles voisines", insp["dec_voisines"]),
+            ]
+            html("".join(
+                f"<div class='mini'><div class='nm'>{lab}</div><div class='tr'><div style='width:{(s == True).mean() * 100:.0f}%'></div></div>"  # noqa: E712
+                f"<div class='vl'>{int((s == True).sum())}</div></div>" for lab, s in facts))  # noqa: E712
+            html("<div class='muted' style='margin-top:8px'>Barre = part des inspections répondant « Oui »</div>")
+        c4, c5 = st.columns(2, gap="medium")
+        with c4, st.container(key="card_i_etat"):
+            html("<p class='card-title'>État des parcelles</p>")
+            st.plotly_chart(bar_h(split_counts(insp["etat"]), 320), config=CFG, width="stretch")
+        with c5, st.container(key="card_i_agro"):
+            html("<p class='card-title'>Pratiques d'agroforesterie</p>")
+            st.plotly_chart(bar_h(split_counts(insp["agrofo"]), 320, "#3e7a3c"), config=CFG, width="stretch")
+        c6, c7 = st.columns(2, gap="medium")
+        with c6, st.container(key="card_i_var"):
+            html("<p class='card-title'>Variétés cultivées</p>")
+            st.plotly_chart(bar_h(split_counts(insp["varietes"]), 200, GREEN_L), config=CFG, width="stretch")
+        with c7, st.container(key="card_i_dens"):
+            html("<p class='card-title'>Densité de plantation</p>")
+            st.plotly_chart(bar_h(insp["densite"].value_counts(), 200, DARK), config=CFG, width="stretch")
+        with st.container(key="card_i_signes"):
+            html("<p class='card-title'>⚠ Parcelles avec signes de CSSVD</p>")
+            sig = insp[insp["signes"] == True]  # noqa: E712
+            if sig.empty:
+                st.success(f"Aucune des {ins_ok} parcelles inspectées ne présente de signes de CSSVD.")
+            else:
+                t = sig[["code", "parcelle", "section", "localite", "date", "sympt_princ", "sympt_sec",
+                         "nb_foyers", "arbres_foyer", "annee_signes", "coop_informee", "lat", "lon"]].rename(columns={
+                    "code": "Code producteur", "parcelle": "Code parcelle", "section": "Section", "localite": "Localité",
+                    "date": "Date", "sympt_princ": "Symptômes principaux", "sympt_sec": "Symptômes secondaires",
+                    "nb_foyers": "Nb foyers", "arbres_foyer": "Arbres infestés / foyer",
+                    "annee_signes": "Année apparition", "coop_informee": "Coopérative informée",
+                    "lat": "Latitude", "lon": "Longitude"})
+                st.dataframe(t, width="stretch", hide_index=True)
+                st.download_button("⬇ Exporter Excel", to_xlsx(t, "Parcelles CSSVD"),
+                                   file_name="upas_parcelles_cssvd.xlsx", type="primary",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    # ======================================================================
+    elif page == "Promesses":
+        if prom.empty:
+            st.info("Aucune promesse de taille dans les données filtrées.")
+            return
+        c1, c2, c3 = st.columns(3, gap="medium")
+        with c1, st.container(key="card_p_per"):
+            html("<p class='card-title'>Période de taille souhaitée</p>")
+            per = prom["periode"].value_counts().sort_index()
+            per.index = [periode_label(p) for p in per.index]
+            st.plotly_chart(bar_h(per[::-1], 240), config=CFG, width="stretch")
+        with c2, st.container(key="card_p_insp"):
+            html("<p class='card-title'>Inspection CSSVD réalisée</p>")
+            st.plotly_chart(ring_chart((prom["inspection"] == True).mean(), "des promesses"),  # noqa: E712
+                            config=CFG, width="stretch")
+        with c3, st.container(key="card_p_elig"):
+            html("<p class='card-title'>Conditions</p>")
+            facts = [("Engagement accepté", prom["accepte"]), ("Contribution expliquée", prom["contribution"]),
+                     ("Parcelle éligible", prom["eligible"]), ("Inspection réalisée", prom["inspection"])]
+            html("".join(
+                f"<div class='mini'><div class='nm'>{lab}</div><div class='tr'><div style='width:{(s == True).mean() * 100:.0f}%'></div></div>"  # noqa: E712
+                f"<div class='vl'>{int((s == True).sum())}</div></div>" for lab, s in facts))  # noqa: E712
+            html(f"<div style='margin-top:14px' class='big'>{int(prom['sup_tailler'].sum())} ha</div>"
+                 "<div class='muted'>superficie totale à tailler</div>")
+        with st.container(key="card_p_todo"):
+            todo = prom[prom["inspection"] != True]  # noqa: E712
+            html(f"<p class='card-title'>📋 Promesses sans inspection CSSVD · {len(todo)}</p>"
+                 "<div class='muted'>Parcelles à inspecter avant la taille</div>")
+            if todo.empty:
+                st.success("Toutes les promesses de taille ont une inspection CSSVD.")
+            else:
+                t = todo[["code", "parcelle", "section", "localite", "date", "periode", "lat", "lon"]].assign(
+                    periode=todo["periode"].map(periode_label), date=todo["date"].dt.strftime("%d/%m/%Y")).rename(columns={
+                    "code": "Code producteur", "parcelle": "Code parcelle", "section": "Section",
+                    "localite": "Localité", "date": "Date promesse", "periode": "Période de taille",
+                    "lat": "Latitude", "lon": "Longitude"})
+                st.dataframe(t, width="stretch", hide_index=True)
+                st.download_button("⬇ Exporter la liste (Excel)", to_xlsx(t, "Inspections à faire"),
+                                   file_name="upas_inspections_a_faire.xlsx", type="primary",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    # ======================================================================
+    elif page == "Carte":
+        g = suivi.dropna(subset=["lat", "lon"]) if n_suivis else pd.DataFrame()
+        with st.container(key="card_u_map"):
+            html(f"<p class='card-title'>Parcelles géolocalisées · {len(g)} / {n_suivis}</p>")
+            if g.empty:
+                st.info("Aucune position GPS dans les données filtrées.")
+            else:
+                colors = {"✅ Parcours complet": "#c9a227", "⚠ Promesse sans inspection": "#d9534f",
+                          "🔍 Inspecté — promesse à faire": GREEN, "📝 Engagé — inspection à faire": GREY,
+                          "Autre": "#7a7a7a"}
+                fig = px.scatter_map(g, lat="lat", lon="lon", color="etape", zoom=10, color_discrete_map=colors,
+                                     hover_name="code", hover_data={"section": True, "localite": True,
+                                                                    "lat": False, "lon": False},
+                                     map_style="open-street-map")
+                fig.update_traces(marker=dict(size=11))
+                fig.update_layout(height=600, margin=dict(l=0, r=0, t=0, b=0), paper_bgcolor="rgba(0,0,0,0)",
+                                  legend=dict(orientation="h", y=1.02, x=0, bgcolor="rgba(255,255,255,.75)", title=None),
+                                  font=dict(family=FONT))
+                st.plotly_chart(fig, width="stretch", config=CFG)
+
+    # ======================================================================
+    else:
+        with st.container(key="card_u_raw"):
+            html("<p class='card-title'>Données UPAS</p>"
+                 "<div class='muted'>Contacts téléphoniques et noms des conjointes non affichés</div>")
+            tabs = st.tabs(["Engagements des ménages", "Inspections CSSVD", "Promesses de taille"])
+            for tab, slot in zip(tabs, COOP_SLOTS["UPAS"]):
+                r = raws[slot][0]
+                with tab:
+                    if r is None:
+                        st.info("Aucun fichier publié.")
+                        continue
+                    r = r[[c for c in r.columns if not re.search(r"contact|nom conjointe", _norm(c))]]
+                    st.dataframe(r, width="stretch", height=480)
+                    st.download_button("⬇ Télécharger (CSV)", r.to_csv(index=False, sep=";").encode("utf-8-sig"),
+                                       file_name=f"{slot}.csv", mime="text/csv", key=f"dl_{slot}")
+
+
+# ----------------------------------------------------------------------------
 # Application
 # ----------------------------------------------------------------------------
 html(CSS)
 
 # --- En-tête ---------------------------------------------------------------
-h1, h2, h3 = st.columns([1.1, 5.2, 1.4], vertical_alignment="center")
+PAGES = {
+    "ECAM": ["Tableau de bord", "Producteurs", "Coachs", "Symptômes", "Carte", "Données"],
+    "UPAS": ["Tableau de bord", "Suivi producteurs", "Inspections", "Promesses", "Carte", "Données"],
+}
+h1, h0, h2, h3 = st.columns([1.05, 1.15, 4.6, 1.3], vertical_alignment="center")
 with h1:
-    html("<span class='logo'>Ecam·Track</span>")
+    html("<span class='logo'>Thrive·Track</span>")
+with h0:
+    with st.container(key="coop"):
+        coop = st.segmented_control("Coopérative", list(PAGES), default="ECAM", key="coop_sel",
+                                    label_visibility="collapsed") or "ECAM"
 with h2:
     with st.container(key="nav"):
-        page = st.segmented_control(
-            "Navigation", ["Tableau de bord", "Producteurs", "Coachs", "Symptômes", "Carte", "Données"],
-            default="Tableau de bord", label_visibility="collapsed") or "Tableau de bord"
+        page = st.segmented_control("Navigation", PAGES[coop], default="Tableau de bord", key=f"nav_{coop}",
+                                    label_visibility="collapsed") or "Tableau de bord"
 with h3:
     pop = st.popover("⚙ Paramètres", width="stretch")
 
+if coop == "UPAS":
+    render_upas(page, pop)
+    st.stop()
+
 df_all, raw, source, meta = load()
-st.session_state.setdefault("data_version", meta.get("version"))
-if meta.get("version"):
-    st.session_state["data_version"] = meta["version"]
-watch_updates()
+watch_updates(tuple(COOP_SLOTS["ECAM"]), "data_version_ECAM")
 
 with pop:
     maj = ""
@@ -934,7 +1524,7 @@ k_prom = prod_rate(df["doc_promesse"] == 1)
 w1, w2 = st.columns([1.55, 1], vertical_alignment="bottom")
 with w1:
     html(f"""
-    <div class='welcome'>Bienvenue,</div>
+    <div class='welcome'>Bienvenue, <span style='color:#3e7a3c'>ECAM</span></div>
     <div class='kp-row'>
       <div class='kp'><span class='kp-lab'>Engagement du ménage</span>
         <div class='kp-pill kp-striped'><div class='kp-fill' style='width:{min(max(k_eng * 100, 0), 100):.1f}%'></div>

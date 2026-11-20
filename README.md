@@ -1,4 +1,4 @@
-# Ecam·Track — Tableau de bord CSSVD
+# Thrive·Track — Tableau de bord CSSVD (ECAM & UPAS)
 
 Tableau de bord Streamlit du suivi des producteurs de cacao : engagement des ménages,
 inspection CSSVD (swollen shoot), promesses de taille, symptômes avec photos, carte des
@@ -104,8 +104,30 @@ gardées sur le serveur uniquement : elles disparaissent à chaque redémarrage 
 ### Publier
 
 1. **⚙ Paramètres → Espace administrateur** → saisir le mot de passe → *Se connecter*.
-2. Choisir l'export Kobo (.xlsx / .csv) → vérifier le nombre de lignes détectées.
-3. **📤 Publier pour tous les utilisateurs**.
+2. Déposer un ou plusieurs fichiers (.xlsx / .csv). Chaque fichier est **reconnu automatiquement** :
+
+   | Fichier | Coopérative | Reconnu grâce à la colonne |
+   |---|---|---|
+   | Export KoboToolbox | ECAM | `Producteur/…`, `_submission_time` |
+   | `thrive_engagements_menages_…` | UPAS | `Date Engagement` |
+   | `thrive_inspections_cssvd_…` | UPAS | `Date Observation` |
+   | `thrive_promesses_taille_…` | UPAS | `Date Promesse` |
+
+3. Vérifier la ligne « ✓ fichier → type · N lignes », puis **📤 Publier … pour tous**.
+
+On peut republier un seul fichier (par ex. seulement les promesses UPAS) : les autres restent inchangés.
+
+## Coopératives
+
+Le menu en haut à gauche permet de passer de **ECAM** à **UPAS**.
+
+| | ECAM | UPAS |
+|---|---|---|
+| Source | 1 export KoboToolbox | 3 fichiers liés par le code producteur |
+| Pages | Tableau de bord, Producteurs, Coachs, Symptômes, Carte, Données | Tableau de bord, Suivi producteurs, Inspections, Promesses, Carte, Données |
+| Objectif | 1 000 producteurs | 1 000 producteurs |
+
+Les numéros de téléphone et les noms des conjointes (UPAS) ne sont jamais affichés.
 
 Chaque publication est enregistrée comme une version dans le dépôt de données
 (historique consultable et restaurable sur GitHub).
