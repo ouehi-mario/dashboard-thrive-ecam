@@ -448,32 +448,77 @@ def cssvd_table(data: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values(["Section", "ID coach", "Nom producteur"], na_position="last").reset_index(drop=True)
 
 
-def to_xlsx(t: pd.DataFrame, sheet: str = "Producteurs CSSVD") -> bytes:
+def _style_sheet(ws, t: pd.DataFrame, freeze: str = "F2") -> None:
     from openpyxl.styles import Alignment, Font, PatternFill
 
-    buf = io.BytesIO()
+    head = PatternFill("solid", fgColor="2E7D32")
+    for c in ws[1]:
+        c.font, c.fill = Font(bold=True, color="FFFFFF"), head
+        c.alignment = Alignment(wrap_text=True, vertical="center")
+    ws.row_dimensions[1].height = 32
+    ws.freeze_panes = freeze
+    ws.auto_filter.ref = ws.dimensions
+    for i, col in enumerate(t.columns, start=1):
+        letter = ws.cell(1, i).column_letter
+        if str(col).startswith("Photo"):
+            ws.column_dimensions[letter].width = 16
+            for r in range(2, len(t) + 2):
+                cell = ws.cell(r, i)
+                if cell.value:
+                    cell.hyperlink, cell.value, cell.style = cell.value, "Voir la photo", "Hyperlink"
+        else:
+            width = max([len(str(col))] + [len(str(v)) for v in t[col].head(500)]) + 2
+            ws.column_dimensions[letter].width = min(max(width, 10), 45)
+
+
+def _sheet_name(name: str, used: set) -> str:
+    """Nom de feuille Excel valide (31 caractères max, sans crochets : * ? / ni antislash) et unique."""
+    base = re.sub(r"[\[\]:*?/\\]", "-", str(name)).strip()[:31] or "Feuille"
+    out, i = base, 2
+    while out.lower() in used:
+        out = f"{base[:28]}-{i}"
+        i += 1
+    used.add(out.lower())
+    return out
+
+
+def to_xlsx_sheets(sheets: dict[str, pd.DataFrame]) -> bytes:
+    """Classeur Excel mis en forme, une feuille par entrée du dictionnaire."""
+    buf, used = io.BytesIO(), set()
     with pd.ExcelWriter(buf, engine="openpyxl") as xw:
-        t.to_excel(xw, index=False, sheet_name=sheet)
-        ws = xw.sheets[sheet]
-        head = PatternFill("solid", fgColor="2E7D32")
-        for c in ws[1]:
-            c.font, c.fill = Font(bold=True, color="FFFFFF"), head
-            c.alignment = Alignment(wrap_text=True, vertical="center")
-        ws.row_dimensions[1].height = 32
-        ws.freeze_panes = "F2"
-        ws.auto_filter.ref = ws.dimensions
-        for i, col in enumerate(t.columns, start=1):
-            letter = ws.cell(1, i).column_letter
-            if str(col).startswith("Photo"):
-                ws.column_dimensions[letter].width = 16
-                for r in range(2, len(t) + 2):
-                    cell = ws.cell(r, i)
-                    if cell.value:
-                        cell.hyperlink, cell.value, cell.style = cell.value, "Voir la photo", "Hyperlink"
-            else:
-                width = max([len(str(col))] + [len(str(v)) for v in t[col].head(500)]) + 2
-                ws.column_dimensions[letter].width = min(max(width, 10), 45)
+        for name, t in sheets.items():
+            sh = _sheet_name(name, used)
+            t.to_excel(xw, index=False, sheet_name=sh)
+            _style_sheet(xw.sheets[sh], t, "B2" if name == "Résumé" else "F2")
     return buf.getvalue()
+
+
+def to_xlsx(t: pd.DataFrame, sheet: str = "Producteurs CSSVD") -> bytes:
+    return to_xlsx_sheets({sheet: t})
+
+
+def upas_xlsx_by_section(t: pd.DataFrame) -> bytes:
+    """Liste de suivi UPAS : feuille « Résumé » + une feuille par section."""
+    t = t.sort_values(["Section", "Étape", "Code producteur"], na_position="last")
+    sec = t["Section"].fillna("Sans section")
+    res = (t.assign(Section=sec)
+           .groupby("Section")
+           .agg(**{"Producteurs": ("Code producteur", "nunique"),
+                   "Engagés": ("Engagé le", lambda c: int(c.notna().sum())),
+                   "Inspectés": ("Inspecté le", lambda c: int(c.notna().sum())),
+                   "Promesses": ("Promesse le", lambda c: int(c.notna().sum())),
+                   "Parcours complet": ("Étape", lambda c: int(c.astype(str).str.startswith("✅").sum())),
+                   "Superficie (ha)": ("Superficie (ha)", "sum")})
+           .reset_index())
+    tot = res.drop(columns="Section").sum(numeric_only=True)
+    res = pd.concat([res, pd.DataFrame([{"Section": "TOTAL", **tot.to_dict()}])], ignore_index=True)
+    res["% complet"] = (res["Parcours complet"] / res["Producteurs"].where(res["Producteurs"] > 0)).map(
+        lambda x: f"{x * 100:.0f} %" if pd.notna(x) else "")
+    res["Superficie (ha)"] = res["Superficie (ha)"].round(2)
+    sheets = {"Résumé": res}
+    for name, g in t.assign(Section=sec).groupby("Section", sort=True):
+        sheets[name] = g.drop(columns="Section")
+    return to_xlsx_sheets(sheets)
 
 
 def symptom_buttons(data: pd.DataFrame, prefix: str) -> None:
@@ -1286,10 +1331,15 @@ def render_upas(page: str, pop) -> None:
                 t = t[t.astype(str).apply(lambda c: c.str.contains(q, case=False, regex=False)).any(axis=1)]
             st.dataframe(t, width="stretch", hide_index=True, height=420)
             stamp = pd.Timestamp.now().strftime("%Y%m%d")
-            d1, d2, _ = st.columns([1, 1, 2])
+            d1, d3, d2, _ = st.columns([1, 1.3, 1, 1])
             d1.download_button("⬇ Exporter Excel", to_xlsx(t, "Suivi UPAS"), file_name=f"upas_suivi_{stamp}.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                type="primary", width="stretch", disabled=t.empty)
+            d3.download_button("⬇ Excel par section", upas_xlsx_by_section(t) if not t.empty else b"",
+                               file_name=f"upas_suivi_par_section_{stamp}.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               type="primary", width="stretch", disabled=t.empty,
+                               help="Une feuille « Résumé » + une feuille par section")
             d2.download_button("⬇ Exporter CSV", t.to_csv(index=False, sep=";").encode("utf-8-sig"),
                                file_name=f"upas_suivi_{stamp}.csv", mime="text/csv", width="stretch", disabled=t.empty)
 
