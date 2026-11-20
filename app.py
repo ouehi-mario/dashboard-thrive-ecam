@@ -324,8 +324,8 @@ def kobo_token() -> str:
 
 
 @st.cache_data(show_spinner=False, ttl=3600, max_entries=500)
-def fetch_image(url: str, token: str) -> bytes | None:
-    """Télécharge une photo Kobo et la renvoie en JPEG (None si inaccessible / format illisible)."""
+def fetch_image(url: str, token: str) -> tuple[bytes | None, str]:
+    """Télécharge une photo Kobo -> (JPEG, "ok") ou (None, cause : acces / introuvable / format / reseau)."""
     import requests
     from PIL import Image
 
@@ -339,16 +339,32 @@ def fetch_image(url: str, token: str) -> bytes | None:
         if token:
             headers["Authorization"] = f"Token {token}"
         r = requests.get(url, headers=headers, timeout=20)
-        if r.status_code != 200:
-            return None
+    except Exception:
+        return None, "reseau"
+    ctype = r.headers.get("content-type", "")
+    if r.status_code in (401, 403) or (r.status_code == 200 and "text/html" in ctype):
+        return None, "acces"  # Kobo renvoie une page de connexion ou un refus
+    if r.status_code == 404:  # Kobo masque les photos privées par un 404 quand la clé manque
+        return None, "introuvable" if token else "acces"
+    if r.status_code != 200:
+        return None, f"erreur {r.status_code}"
+    try:
         img = Image.open(io.BytesIO(r.content))
         img = img.convert("RGB")
         img.thumbnail((1200, 1200))
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=85)
-        return buf.getvalue()
+        return buf.getvalue(), "ok"
     except Exception:
-        return None
+        return None, "format"
+
+
+FAIL_MSG = {
+    "acces": "accès refusé par Kobo → la clé `KOBO_TOKEN` est absente, incorrecte, ou le compte n'a pas accès au projet",
+    "introuvable": "introuvable sur Kobo → photo supprimée, ou la clé `KOBO_TOKEN` appartient à un compte sans accès au projet",
+    "format": "format d'image non lisible",
+    "reseau": "Kobo ne répond pas (réseau / délai dépassé)",
+}
 
 
 @st.dialog("Photos du symptôme", width="large")
@@ -365,25 +381,27 @@ def show_gallery(k: str, data: pd.DataFrame) -> None:
         return
     limit = 24
     token = kobo_token()
-    fails = 0
+    fails: dict[str, int] = {}
     grid = st.columns(3)
     for i, r in enumerate(photos.head(limit).itertuples()):
         url = getattr(r, col)
         with grid[i % 3]:
             with st.spinner(""):
-                img = fetch_image(url, token)
+                img, why = fetch_image(url, token)
             if img:
                 st.image(img, width="stretch")
             else:
-                fails += 1
+                fails[why] = fails.get(why, 0) + 1
                 st.link_button("📷 Ouvrir la photo ↗", url, width="stretch")
             d = r.date.strftime("%d/%m %H:%M") if pd.notna(r.date) else ""
             st.caption(f"**{r.prod_nom}** · {r.prod_code}  \n{r.section} · {r.agent_id} · {d}")
     if len(photos) > limit:
         st.caption(f"{limit} photos les plus récentes affichées sur {len(photos)}.")
     if fails:
-        st.warning(f"{fails} photo(s) n'ont pas pu être affichées ici (accès Kobo protégé ou format HEIC). "
-                   "Renseignez votre **jeton API Kobo** dans ⚙ Paramètres, ou cliquez sur « Ouvrir la photo ».")
+        lines = "\n".join(f"- **{n}** : {FAIL_MSG.get(w, w)}" for w, n in fails.items())
+        conseil = ("\n\n➡ Ajoutez `KOBO_TOKEN` dans les Secrets (clé : https://kf.kobotoolbox.org/token/?format=json)."
+                   if not token else "")
+        st.warning(f"{sum(fails.values())} photo(s) non affichée(s) — utilisez « Ouvrir la photo » :\n{lines}{conseil}")
 
 
 def cssvd_table(data: pd.DataFrame) -> pd.DataFrame:
