@@ -1175,6 +1175,57 @@ def section_progress(suivi: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def upas_quality(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame) -> pd.DataFrame:
+    """Contrôle de la règle 1 producteur = 1 engagement = 1 inspection = 1 promesse."""
+    files = {"Engagements": eng, "Inspections": insp, "Promesses": prom}
+    rows = []
+
+    def add(kind, code, fichier, detail):
+        rows.append({"Anomalie": kind, "Code producteur": code, "Fichier(s)": fichier, "Détail": detail})
+
+    # 1) doublons dans un même fichier
+    for fname, t in files.items():
+        d = t[t["code"].notna() & t["code"].duplicated(keep=False)]
+        for code, g in d.groupby("code"):
+            same = g.drop(columns=["synchro"]).astype(str).nunique().le(1).all()
+            add("Doublon", code, fname,
+                f"{len(g)} fiches {'identiques (envoi en double)' if same else 'différentes'} · synchronisées le "
+                + ", ".join(g["synchro"].dt.strftime("%d/%m %H:%M:%S").dropna()))
+    # 2) code parcelle qui ne reprend pas le code producteur
+    for fname, t in files.items():
+        for r in t.dropna(subset=["code", "parcelle"]).drop_duplicates("code").itertuples():
+            if str(r.code) not in str(r.parcelle):
+                add("Code parcelle incohérent", r.code, fname, f"parcelle « {r.parcelle} » ne correspond pas au producteur")
+    # 3) même producteur, informations différentes d'un fichier à l'autre
+    ref = eng.dropna(subset=["code"]).drop_duplicates("code").set_index("code")
+    for fname, t in (("Inspections", insp), ("Promesses", prom)):
+        o = t.dropna(subset=["code"]).drop_duplicates("code").set_index("code")
+        for code in o.index.intersection(ref.index):
+            for col, lab in (("parcelle", "Code parcelle"), ("section", "Section"), ("localite", "Localité")):
+                a, b = ref.at[code, col], o.at[code, col]
+                if pd.notna(a) and pd.notna(b) and str(a) != str(b):
+                    add(f"{lab} différent(e)", code, f"Engagements ↔ {fname}", f"« {a} » ↔ « {b} »")
+    # 4) étapes manquantes dans la chaîne
+    e, i, p = (set(t["code"].dropna()) for t in (eng, insp, prom))
+    for code in sorted(i - e):
+        add("Inspection sans engagement", code, "Inspections", "absent du fichier des engagements")
+    for code in sorted(p - e):
+        add("Promesse sans engagement", code, "Promesses", "absent du fichier des engagements")
+    for code in sorted(p - i):
+        add("Promesse sans inspection", code, "Promesses", "aucune inspection CSSVD pour ce producteur")
+    for code in sorted(i - p):
+        add("Inspection sans promesse", code, "Inspections", "aucune promesse de taille pour ce producteur")
+    return pd.DataFrame(rows, columns=["Anomalie", "Code producteur", "Fichier(s)", "Détail"])
+
+
+def dedupe(t: pd.DataFrame) -> pd.DataFrame:
+    """Garde une seule fiche par producteur (la plus récemment synchronisée)."""
+    if t.empty:
+        return t
+    t = t.sort_values("synchro")
+    return pd.concat([t[t["code"].isna()], t[t["code"].notna()].drop_duplicates("code", keep="last")])
+
+
 def render_upas(page: str, pop) -> None:
     raws = {s: load_slot(s) for s in COOP_SLOTS["UPAS"]}
     watch_updates(tuple(COOP_SLOTS["UPAS"]), "data_version_UPAS")
@@ -1207,6 +1258,10 @@ def render_upas(page: str, pop) -> None:
         return
 
     eng, insp, prom = (upas_filter(t, f_sec, f_dates) for t in (eng_all, insp_all, prom_all))
+    anomalies = upas_quality(eng, insp, prom)
+    n_lignes = {"eng": len(eng), "insp": len(insp), "prom": len(prom)}
+    eng, insp, prom = dedupe(eng), dedupe(insp), dedupe(prom)  # 1 fiche par producteur dans chaque fichier
+    n_double = {k: n_lignes[k] - len(t) for k, t in (("eng", eng), ("insp", insp), ("prom", prom))}
     suivi = upas_suivi(eng, insp, prom)
     n_eng, n_insp, n_prom = eng["code"].nunique(), insp["code"].nunique(), prom["code"].nunique()
     n_suivis = len(suivi)
@@ -1239,17 +1294,36 @@ def render_upas(page: str, pop) -> None:
           <div><div class='stat'><span class='ic'>🌳</span><span class='num'>{fmt(hectares)}</span></div><div class='lab' style='margin-left:40px'>Hectares</div></div>
         </div>""")
 
+    def note(k: str) -> str:
+        if n_double[k] > 0:
+            return f"{n_lignes[k]} fiches · <b style='color:#c0392b'>{n_double[k]} en double</b>"
+        return f"{n_lignes[k]} fiches" if n_lignes[k] else ""
+
     compteurs = [
-        ("Producteurs suivis", n_suivis, "#8fcf86"),
-        ("Engagement du ménage", n_eng, GREEN),
-        ("Inspection CSSVD", n_insp, "#1f6a24"),
-        ("Promesse de taille", n_prom, DARK),
-        ("Parcours complet", n_complet, "#c9a227"),
+        ("Producteurs suivis", n_suivis, "#8fcf86", ""),
+        ("Engagement du ménage", n_eng, GREEN, note("eng")),
+        ("Inspection CSSVD", n_insp, "#1f6a24", note("insp")),
+        ("Promesse de taille", n_prom, DARK, note("prom")),
+        ("Parcours complet", n_complet, "#c9a227", ""),
     ]
     html("<div class='cnt-row'>" + "".join(
         f"<div class='cnt' style='--c:{c}'><div class='n'>{v}<small>/{fmt(cible)}</small></div>"
         f"<div class='lb'>{lab}</div><div class='tr'><div style='width:{min(v / cible * 100, 100):.1f}%'></div></div>"
-        f"<div class='pc'>{v / cible * 100:.1f} % de l'objectif</div></div>" for lab, v, c in compteurs) + "</div>")
+        f"<div class='pc'>{v / cible * 100:.1f} % de l'objectif</div>"
+        f"{f'<div class=pc>{nt}</div>' if nt else ''}</div>" for lab, v, c, nt in compteurs) + "</div>")
+
+    if not anomalies.empty:
+        resume = " · ".join(f"{n} {k.lower()}" for k, n in anomalies["Anomalie"].value_counts().items())
+        with st.container(key="card_doublons"):
+            with st.expander(f"⚠ Contrôle qualité UPAS : {len(anomalies)} anomalie(s) — {resume}"):
+                st.caption("Règle attendue : 1 producteur = 1 engagement = 1 inspection CSSVD = 1 promesse de taille. "
+                           "Les doublons sont comptés une seule fois dans le tableau de bord. "
+                           "Les fichiers sont reliés par le **code producteur** : un code parcelle mal saisi "
+                           "ne fausse pas les compteurs, mais doit être corrigé à la source.")
+                st.dataframe(anomalies, width="stretch", hide_index=True)
+                st.download_button("⬇ Exporter les anomalies (Excel)", to_xlsx(anomalies, "Anomalies UPAS"),
+                                   file_name=f"upas_anomalies_{pd.Timestamp.now():%Y%m%d}.xlsx",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.write("")
 
     ins_ok = insp["signes"].notna().sum()
