@@ -1205,16 +1205,27 @@ def upas_quality(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame) -> p
                 a, b = ref.at[code, col], o.at[code, col]
                 if pd.notna(a) and pd.notna(b) and str(a) != str(b):
                     add(f"{lab} différent(e)", code, f"Engagements ↔ {fname}", f"« {a} » ↔ « {b} »")
-    # 4) étapes manquantes dans la chaîne
+    # 4) ordre logique : Engagement → Inspection CSSVD → Promesse de taille
+    #    (une inspection sans promesse n'est PAS une anomalie : c'est l'étape suivante à faire)
     e, i, p = (set(t["code"].dropna()) for t in (eng, insp, prom))
     for code in sorted(i - e):
         add("Inspection sans engagement", code, "Inspections", "absent du fichier des engagements")
     for code in sorted(p - e):
         add("Promesse sans engagement", code, "Promesses", "absent du fichier des engagements")
+    declare = prom.dropna(subset=["code"]).drop_duplicates("code").set_index("code")["inspection"]
     for code in sorted(p - i):
-        add("Promesse sans inspection", code, "Promesses", "aucune inspection CSSVD pour ce producteur")
-    for code in sorted(i - p):
-        add("Inspection sans promesse", code, "Inspections", "aucune promesse de taille pour ce producteur")
+        dit = " — pourtant déclarée « Oui » dans la promesse" if declare.get(code) == True else ""  # noqa: E712
+        add("Promesse sans inspection", code, "Promesses", f"aucune inspection CSSVD dans le fichier{dit}")
+    d_insp = insp.dropna(subset=["code"]).groupby("code")["date"].min()
+    d_prom = prom.dropna(subset=["code"]).groupby("code")["date"].min()
+    for code in sorted(set(d_insp.index) & set(d_prom.index)):
+        if pd.notna(d_insp[code]) and pd.notna(d_prom[code]) and d_prom[code] < d_insp[code]:
+            add("Promesse avant inspection", code, "Inspections ↔ Promesses",
+                f"promesse le {d_prom[code]:%d/%m/%Y}, inspection le {d_insp[code]:%d/%m/%Y}")
+    for code in sorted(i & p):
+        if declare.get(code) == False:  # noqa: E712
+            add("Déclaration incohérente", code, "Promesses",
+                "« inspection CSSVD réalisée » = Non dans la promesse, alors qu'une inspection existe")
     return pd.DataFrame(rows, columns=["Anomalie", "Code producteur", "Fichier(s)", "Détail"])
 
 
@@ -1316,7 +1327,8 @@ def render_upas(page: str, pop) -> None:
         resume = " · ".join(f"{n} {k.lower()}" for k, n in anomalies["Anomalie"].value_counts().items())
         with st.container(key="card_doublons"):
             with st.expander(f"⚠ Contrôle qualité UPAS : {len(anomalies)} anomalie(s) — {resume}"):
-                st.caption("Règle attendue : 1 producteur = 1 engagement = 1 inspection CSSVD = 1 promesse de taille. "
+                st.caption("Règle attendue : 1 producteur = 1 engagement → 1 inspection CSSVD → 1 promesse de taille, "
+                           "dans cet ordre (l'inspection précède la promesse). "
                            "Les doublons sont comptés une seule fois dans le tableau de bord. "
                            "Les fichiers sont reliés par le **code producteur** : un code parcelle mal saisi "
                            "ne fausse pas les compteurs, mais doit être corrigé à la source.")
@@ -1517,7 +1529,7 @@ def render_upas(page: str, pop) -> None:
             st.plotly_chart(bar_h(per[::-1], 240), config=CFG, width="stretch")
         with c2, st.container(key="card_p_insp"):
             html("<p class='card-title'>Inspection CSSVD réalisée</p>")
-            st.plotly_chart(ring_chart((prom["inspection"] == True).mean(), "des promesses"),  # noqa: E712
+            st.plotly_chart(ring_chart(prom["code"].isin(set(insp["code"].dropna())).mean(), "des promesses"),
                             config=CFG, width="stretch")
         with c3, st.container(key="card_p_elig"):
             html("<p class='card-title'>Conditions</p>")
@@ -1529,7 +1541,7 @@ def render_upas(page: str, pop) -> None:
             html(f"<div style='margin-top:14px' class='big'>{int(prom['sup_tailler'].sum())} ha</div>"
                  "<div class='muted'>superficie totale à tailler</div>")
         with st.container(key="card_p_todo"):
-            todo = prom[prom["inspection"] != True]  # noqa: E712
+            todo = prom[~prom["code"].isin(set(insp["code"].dropna()))]  # absente du fichier des inspections
             html(f"<p class='card-title'>📋 Promesses sans inspection CSSVD · {len(todo)}</p>"
                  "<div class='muted'>Parcelles à inspecter avant la taille</div>")
             if todo.empty:
