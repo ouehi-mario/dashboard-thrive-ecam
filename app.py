@@ -393,7 +393,7 @@ def show_gallery(k: str, data: pd.DataFrame) -> None:
     photos = rows[rows[col].notna() & (rows[col] != "")] if col in rows else rows.iloc[0:0]
     photos = photos.sort_values("date", ascending=False)
     html(f"<div style='font-size:1.5rem'>{icon} {name}</div>"
-         f"<div class='muted'>{len(rows)} parcelle(s) concernée(s) · {len(photos)} photo(s)</div>")
+         f"<div class='muted'>{len(rows)} producteur(s) concerné(s) · {len(photos)} photo(s)</div>")
     if photos.empty:
         st.info("Aucune photo disponible pour ce symptôme dans les données filtrées.")
         return
@@ -555,7 +555,7 @@ def symptom_buttons(data: pd.DataFrame, prefix: str) -> None:
         col = f"photo_{k}"
         n_ph = int((data[col].notna() & (data[k] == 1)).sum()) if col in data else 0
         name, icon = SYMPTOMES[k]
-        label = f"{icon}  {name}  ·  {v} parcelle{'s' if v > 1 else ''}  ·  📷 {n_ph}"
+        label = f"{icon}  {name}  ·  {v} producteur{'s' if v > 1 else ''}  ·  📷 {n_ph}"
         if st.button(label, key=f"{prefix}_{k}", width="stretch", disabled=v == 0):
             show_gallery(k, data)
 
@@ -1183,6 +1183,11 @@ def upas_quality(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame) -> p
     def add(kind, code, fichier, detail):
         rows.append({"Anomalie": kind, "Code producteur": code, "Fichier(s)": fichier, "Détail": detail})
 
+    # 0) fiches sans code producteur (impossibles à relier aux autres fichiers)
+    for fname, t in files.items():
+        n = int(t["code"].isna().sum())
+        if n:
+            add("Fiche sans code producteur", "—", fname, f"{n} fiche(s) exclue(s) des indicateurs")
     # 1) doublons dans un même fichier
     for fname, t in files.items():
         d = t[t["code"].notna() & t["code"].duplicated(keep=False)]
@@ -1230,11 +1235,11 @@ def upas_quality(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame) -> p
 
 
 def dedupe(t: pd.DataFrame) -> pd.DataFrame:
-    """Garde une seule fiche par producteur (la plus récemment synchronisée)."""
+    """Une seule fiche par code producteur (la plus récemment synchronisée) ; fiches sans code exclues."""
     if t.empty:
         return t
     t = t.sort_values("synchro")
-    return pd.concat([t[t["code"].isna()], t[t["code"].notna()].drop_duplicates("code", keep="last")])
+    return t[t["code"].notna()].drop_duplicates("code", keep="last")  # fiches sans code : non reliables, exclues
 
 
 def render_upas(page: str, pop) -> None:
@@ -1338,8 +1343,8 @@ def render_upas(page: str, pop) -> None:
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.write("")
 
-    ins_ok = insp["signes"].notna().sum()
-    n_signes = int((insp["signes"] == True).sum())  # noqa: E712
+    ins_ok = int(insp.loc[insp["signes"].notna(), "code"].nunique())
+    n_signes = int(insp.loc[insp["signes"] == True, "code"].nunique())  # noqa: E712
     r_sain = (ins_ok - n_signes) / ins_ok if ins_ok else np.nan
 
     # ======================================================================
@@ -1402,11 +1407,11 @@ def render_upas(page: str, pop) -> None:
             icons = ["🌿", "🐛", "🌳", "☀️", "💧", "🍂", "🪓"]
             items = "".join(
                 f"<div class='task'><div class='ic on'>{icons[i % 7]}</div><div><div class='t1'>{k}</div>"
-                f"<div class='t2'>{v} parcelle{'s' if v > 1 else ''} · {v / max(len(insp), 1) * 100:.0f}%</div></div>"
+                f"<div class='t2'>{v} producteur{'s' if v > 1 else ''} · {v / max(insp['code'].nunique(), 1) * 100:.0f}%</div></div>"
                 f"<div class='ck on'>✓</div></div>" for i, (k, v) in enumerate(etats.items()))
             with st.container(key="dark_etat"):
                 html(f"""<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:6px'>
-                <span style='font-size:1.25rem'>État des parcelles</span><span style='font-size:2rem;font-weight:300'>{len(insp)}</span></div>
+                <span style='font-size:1.25rem'>État des parcelles</span><span style='font-size:2rem;font-weight:300'>{insp['code'].nunique()}</span></div>
                 <div class='t2' style='color:#a8a8a8;font-size:.78rem;margin-bottom:6px'>observations lors des inspections CSSVD</div>
                 {items}""")
 
@@ -1464,7 +1469,7 @@ def render_upas(page: str, pop) -> None:
         c1, c2, c3 = st.columns(3, gap="medium")
         with c1, st.container(key="card_i_ring"):
             html("<p class='card-title'>Parcelles saines</p>")
-            st.plotly_chart(ring_chart(r_sain, f"{ins_ok - n_signes} / {ins_ok} parcelles"), config=CFG, width="stretch")
+            st.plotly_chart(ring_chart(r_sain, f"{ins_ok - n_signes} / {ins_ok} producteurs"), config=CFG, width="stretch")
         with c2, st.container(key="card_i_age"):
             html("<p class='card-title'>Âge moyen des cacaoyers</p>")
             bins = pd.cut(insp["age"], [0, 10, 20, 30, 40, 200], labels=["< 10 ans", "10-19", "20-29", "30-39", "40 ans +"],
@@ -1502,7 +1507,7 @@ def render_upas(page: str, pop) -> None:
             html("<p class='card-title'>⚠ Parcelles avec signes de CSSVD</p>")
             sig = insp[insp["signes"] == True]  # noqa: E712
             if sig.empty:
-                st.success(f"Aucune des {ins_ok} parcelles inspectées ne présente de signes de CSSVD.")
+                st.success(f"Aucun des {ins_ok} producteurs inspectés ne présente de signes de CSSVD.")
             else:
                 t = sig[["code", "parcelle", "section", "localite", "date", "sympt_princ", "sympt_sec",
                          "nb_foyers", "arbres_foyer", "annee_signes", "coop_informee", "lat", "lon"]].rename(columns={
@@ -1699,13 +1704,13 @@ def consolidate(d: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
     return out
 
 
-# Une ligne par parcelle (CSSVD, symptômes, GPS, carte) et une par producteur (engagement, documents)
+# Indicateurs : 1 ligne par code producteur (pp). « parc » (1 ligne par parcelle) sert seulement à l'export terrain.
 parc = consolidate(df, ["prod_code", "plantation"])
-pp = consolidate(parc, ["prod_code"])
+pp = consolidate(parc[parc["prod_code"].notna()], ["prod_code"])  # 1 ligne par code producteur
 r_eng = pp["engagement"].astype(float).mean()
-r_cssvd = parc["cssvd"].astype(float).mean()
+r_cssvd = pp["cssvd"].astype(float).mean()
 r_doc = ((pp["doc_promesse"] == 1) | (pp["doc_fiche"] == 1)).mean()
-r_gps = parc["lat"].notna().mean()
+r_gps = pp["lat"].notna().mean()
 
 
 def prod_rate(mask: pd.Series) -> float:
@@ -1877,12 +1882,12 @@ if page == "Tableau de bord":
             <p class='card-title'>Documents</p><span class='big' style='font-size:2rem'>{pct(r_doc)}</span></div>
             <div class='seg'>{seg}</div>""")
 
-        cs = parc[parc["cssvd"] == True]  # noqa: E712
+        cs = pp[pp["cssvd"] == True]  # noqa: E712
         n_obs = sum(int((cs[k] == 1).sum()) > 0 for k in SYMPTOMES)
         with st.container(key="dark_symptoms"):
             html(f"""<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:6px'>
             <span style='font-size:1.25rem'>Symptômes CSSVD</span><span style='font-size:2rem;font-weight:300'>{n_obs}/6</span></div>
-            <div class='t2' style='color:#a8a8a8;font-size:.78rem;margin-bottom:6px'>{len(cs)} parcelles avec signes ·
+            <div class='t2' style='color:#a8a8a8;font-size:.78rem;margin-bottom:6px'>{len(cs)} producteurs avec signes ·
             cliquez sur un symptôme pour voir les photos</div>""")
             symptom_buttons(cs, "dash")
             st.download_button("⬇  Exporter la liste (Excel)", to_xlsx(cssvd_table(parc)), key="dash_export",
@@ -1930,7 +1935,7 @@ elif page == "Producteurs":
 # ============================================================================
 elif page == "Coachs":
     activite = df.groupby(["agent_id", "agent_nom"]).agg(fiches=("prod_code", "size"), derniere=("date", "max"))
-    taux = (parc.groupby(["agent_id", "agent_nom"])
+    taux = (pp.groupby(["agent_id", "agent_nom"])
             .agg(producteurs=("prod_code", "nunique"),
                  engagement=("engagement", lambda s: s.astype(float).mean()),
                  cssvd=("cssvd", lambda s: s.astype(float).mean()),
@@ -1965,11 +1970,11 @@ elif page == "Coachs":
 # PAGE : Symptômes
 # ============================================================================
 elif page == "Symptômes":
-    cs = parc[parc["cssvd"] == True]  # noqa: E712
+    cs = pp[pp["cssvd"] == True]  # noqa: E712
     c1, c2 = st.columns([1, 1.3], gap="medium")
     with c1, st.container(key="card_s_ring"):
-        html("<p class='card-title'>Parcelles avec signes de CSSVD</p>")
-        st.plotly_chart(ring_chart(r_cssvd, f"{len(cs)} / {parc['cssvd'].notna().sum()} parcelles"),
+        html("<p class='card-title'>Producteurs avec signes de CSSVD</p>")
+        st.plotly_chart(ring_chart(r_cssvd, f"{len(cs)} / {pp['cssvd'].notna().sum()} producteurs"),
                         config=CFG, width="stretch")
     with c2, st.container(key="card_s_bar"):
         html("<p class='card-title'>Fréquence des symptômes</p>")
@@ -2019,7 +2024,7 @@ elif page == "Symptômes":
 
     with st.container(key="card_s_sec"):
         html("<p class='card-title'>Taux de CSSVD par section</p>")
-        t = (parc.groupby("section").agg(parcelles=("cssvd", "size"),
+        t = (pp.groupby("section").agg(producteurs=("cssvd", "size"),
                                        cssvd=("cssvd", lambda s: s.astype(float).mean()))
              .sort_values("cssvd", ascending=False).reset_index())
         fig = px.bar(t, x="section", y="cssvd", text=t["cssvd"].map(pct), color_discrete_sequence=[GREEN])
@@ -2032,9 +2037,9 @@ elif page == "Symptômes":
 # PAGE : Carte
 # ============================================================================
 elif page == "Carte":
-    g = parc.dropna(subset=["lat", "lon"]).copy()
+    g = pp.dropna(subset=["lat", "lon"]).copy()
     with st.container(key="card_map"):
-        html(f"<p class='card-title'>Parcelles géolocalisées · {len(g)} / {len(parc)}</p>")
+        html(f"<p class='card-title'>Producteurs géolocalisés · {len(g)} / {len(pp)}</p>")
         if g.empty:
             st.info("Aucune coordonnée GPS dans les données filtrées.")
         else:
