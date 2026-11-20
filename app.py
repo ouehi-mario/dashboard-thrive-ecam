@@ -615,6 +615,57 @@ def ecam_xlsx_by_section(t: pd.DataFrame) -> bytes:
     return to_xlsx_sheets(sheets)
 
 
+def ecam_producteurs_table(pp: pd.DataFrame, fiches: pd.DataFrame) -> pd.DataFrame:
+    """Liste ECAM : 1 ligne par code producteur (fiches en double fusionnées)."""
+    f = fiches[fiches["prod_code"].notna()]
+    par = f.groupby("prod_code").agg(
+        parcelles=("plantation", lambda s: ", ".join(sorted(s.dropna().unique()))),
+        nb_parcelles=("plantation", "nunique"), nb_fiches=("prod_code", "size"))
+    p = pp[pp["prod_code"].notna()].set_index("prod_code").join(par)
+    yn = {True: "Oui", False: "Non"}
+    t = pd.DataFrame({
+        "Code planteur": p.index, "Nom producteur": p["prod_nom"].values, "Genre": p["genre"].values,
+        "Année naissance": p["annee"].astype("Int64").values,
+        "Section": p["section"].values, "Localité": p["localite"].values, "Lieu de résidence": p["campement"].values,
+        "ID coach": p["agent_id"].values, "Nom coach": p["agent_nom"].values,
+        "Code(s) parcelle": p["parcelles"].values, "Nb parcelles": p["nb_parcelles"].values,
+        "Nb fiches": p["nb_fiches"].values, "Superficie totale (ha)": p["sup_tot"].round(2).values,
+        "Engagement": p["engagement"].map(yn).values,
+        "Fiche inspection CSSVD": np.where(p["doc_fiche"] == 1, "Oui", "Non"),
+        "Promesse de taille": np.where(p["doc_promesse"] == 1, "Oui", "Non"),
+        "Signes CSSVD": p["cssvd"].map(yn).values,
+        "Latitude": p["lat"].values, "Longitude": p["lon"].values,
+        "Dernière fiche": p["date"].dt.strftime("%d/%m/%Y %H:%M").values,
+    })
+    return t.sort_values(["Section", "Nom producteur"], na_position="last").reset_index(drop=True)
+
+
+def ecam_prod_xlsx_by_section(t: pd.DataFrame) -> bytes:
+    """Liste des producteurs ECAM : feuille « Résumé » + une feuille par section."""
+    t = t.assign(Section=t["Section"].fillna("Sans section"))
+
+    def summarize(g: pd.DataFrame) -> dict:
+        oui = lambda c: int((g[c] == "Oui").sum())  # noqa: E731
+        return {"Producteurs": g["Code planteur"].nunique(),
+                "Femmes": int(g["Genre"].astype(str).str.lower().str.startswith("f").sum()),
+                "Hommes": int(g["Genre"].astype(str).str.lower().str.startswith("h").sum()),
+                "Engagés": oui("Engagement"), "Refus": int((g["Engagement"] == "Non").sum()),
+                "Fiche inspection CSSVD": oui("Fiche inspection CSSVD"),
+                "Promesse de taille": oui("Promesse de taille"), "Signes CSSVD": oui("Signes CSSVD"),
+                "Superficie totale (ha)": round(g["Superficie totale (ha)"].sum(), 2),
+                "Parcelles": int(g["Nb parcelles"].sum()), "Fiches saisies": int(g["Nb fiches"].sum())}
+
+    rows = [{"Section": name, **summarize(g)} for name, g in t.groupby("Section", sort=True)]
+    rows.append({"Section": "TOTAL", **summarize(t)})
+    res = pd.DataFrame(rows)
+    res["% engagés"] = (res["Engagés"] / res["Producteurs"].where(res["Producteurs"] > 0)).map(
+        lambda x: f"{x * 100:.0f} %" if pd.notna(x) else "")
+    sheets = {"Résumé": res}
+    for name, g in t.groupby("Section", sort=True):
+        sheets[name] = g.drop(columns="Section")
+    return to_xlsx_sheets(sheets)
+
+
 def symptom_buttons(data: pd.DataFrame, prefix: str) -> None:
     """Un bouton par symptôme ; un clic ouvre la galerie de photos."""
     observed = {k: int((data[k] == 1).sum()) for k in SYMPTOMES}
@@ -1985,17 +2036,35 @@ elif page == "Producteurs":
         st.plotly_chart(bar_h(bins.value_counts().sort_index(ascending=False), color=DARK), config=CFG,
                         width="stretch")
     with st.container(key="card_table"):
-        q = st.text_input("Rechercher un producteur", placeholder="Nom, code planteur, localité…")
-        t = prod.reset_index().rename(columns={"prod_code": "code"})
+        html("<p class='card-title'>🧾 Liste des producteurs</p>"
+             "<div class='muted'>1 ligne = 1 code producteur (fiches en double fusionnées)</div>")
+        t = ecam_producteurs_table(pp, df)
+        e1, e2 = st.columns([1, 2])
+        fp_sec = e1.multiselect("Section", sorted(t["Section"].dropna().unique()), key="prod_sec")
+        q = e2.text_input("Rechercher un producteur", placeholder="Nom, code planteur, localité, coach…")
+        if fp_sec:
+            t = t[t["Section"].isin(fp_sec)]
         if q:
             m = t.astype(str).apply(lambda col: col.str.contains(q, case=False, regex=False)).any(axis=1)
             t = t[m]
         st.dataframe(t, width="stretch", hide_index=True, height=420, column_config={
-            "superficie": st.column_config.NumberColumn("Superficie (ha)", format="%.2f"),
-            "cssvd": st.column_config.CheckboxColumn("CSSVD"),
-            "engagement": st.column_config.CheckboxColumn("Engagé"),
-            "annee": st.column_config.NumberColumn("Naissance", format="%d"),
+            "Superficie totale (ha)": st.column_config.NumberColumn(format="%.2f"),
+            "Année naissance": st.column_config.NumberColumn(format="%d"),
         })
+        stamp = pd.Timestamp.now().strftime("%Y%m%d")
+        d1, d3, d2, _ = st.columns([1, 1.3, 1, 1])
+        d1.download_button("⬇ Exporter Excel", to_xlsx(t, "Producteurs ECAM"),
+                           file_name=f"ecam_producteurs_{stamp}.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           type="primary", width="stretch", disabled=t.empty, key="prod_xlsx")
+        d3.download_button("⬇ Excel par section", ecam_prod_xlsx_by_section(t) if not t.empty else b"",
+                           file_name=f"ecam_producteurs_par_section_{stamp}.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           type="primary", width="stretch", disabled=t.empty, key="prod_xlsx_sec",
+                           help="Une feuille « Résumé » + une feuille par section")
+        d2.download_button("⬇ Exporter CSV", t.to_csv(index=False, sep=";").encode("utf-8-sig"),
+                           file_name=f"ecam_producteurs_{stamp}.csv", mime="text/csv",
+                           width="stretch", disabled=t.empty, key="prod_csv")
 
 # ============================================================================
 # PAGE : Coachs
