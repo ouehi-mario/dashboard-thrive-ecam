@@ -148,6 +148,10 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: #222; }
 .st-key-coop button[kind="segmented_controlActive"], .st-key-coop button[data-testid="stBaseButton-segmented_controlActive"] { background:#5aa55a !important; }
 .st-key-coop button[kind="segmented_controlActive"] p, .st-key-coop button[data-testid="stBaseButton-segmented_controlActive"] p { color:#fff !important; }
 
+/* Alerte doublons */
+.st-key-card_doublons { border-left: 6px solid #d9534f !important; padding: 6px 18px !important; }
+.st-key-card_doublons summary p { color:#a93226 !important; font-weight:600; }
+
 /* Gros chiffres */
 .stat { display:flex; align-items:flex-end; gap:10px; }
 .stat .ic { width:30px; height:30px; border-radius:50%; background:rgba(255,255,255,.6); display:flex; align-items:center; justify-content:center; font-size:.85rem; margin-bottom:8px;}
@@ -1621,19 +1625,63 @@ def n_prod_where(mask: pd.Series) -> int:
 
 
 cible = objectif or n_prod
+# Tout est compté par producteur unique, pour que Enquêtés = Refus + Engagés.
+# Un producteur saisi sur plusieurs fiches est « engagé » si au moins une fiche dit Oui.
+n_engages = n_prod_where(df["engagement"] == True)  # noqa: E712
+engages = set(df.loc[df["engagement"] == True, "prod_code"].dropna())  # noqa: E712
+n_refus = int(df.loc[(df["engagement"] == False) & ~df["prod_code"].isin(engages), "prod_code"].nunique())  # noqa: E712
+n_extra = n_fiches - n_prod
 compteurs = [
-    ("Producteurs enquêtés", n_fiches, "#8fcf86"),  # = nombre total de lignes
-    ("Refus d'engagement", n_prod_where(df["engagement"] == False), "#d9534f"),  # noqa: E712
-    ("Engagement du ménage", n_prod_where(df["engagement"] == True), GREEN),  # noqa: E712
-    ("Inspection CSSVD", n_prod_where(df["doc_fiche"] == 1), "#1f6a24"),
-    ("Promesse de taille", n_prod_where(df["doc_promesse"] == 1), DARK),
+    ("Producteurs enquêtés", n_prod, "#8fcf86",
+     f"{n_fiches} fiches saisies · <b style='color:#c0392b'>{n_extra} en double</b>" if n_extra > 0 else f"{n_fiches} fiches saisies"),
+    ("Refus d'engagement", n_refus, "#d9534f", ""),
+    ("Engagement du ménage", n_engages, GREEN, ""),
+    ("Inspection CSSVD", n_prod_where(df["doc_fiche"] == 1), "#1f6a24", ""),
+    ("Promesse de taille", n_prod_where(df["doc_promesse"] == 1), DARK, ""),
 ]
 cards = "".join(
     f"<div class='cnt' style='--c:{c}'><div class='n'>{v}<small>/{fmt(cible)}</small></div>"
     f"<div class='lb'>{lab}</div><div class='tr'><div style='width:{min(v / cible * 100, 100) if cible else 0:.1f}%'></div></div>"
-    f"<div class='pc'>{(v / cible * 100 if cible else 0):.1f} % de l'objectif</div></div>"
-    for lab, v, c in compteurs)
+    f"<div class='pc'>{(v / cible * 100 if cible else 0):.1f} % de l'objectif</div>"
+    f"{f'<div class=pc>{note}</div>' if note else ''}</div>"
+    for lab, v, c, note in compteurs)
 html(f"<div class='cnt-row'>{cards}</div>")
+
+
+def doublons_table(d: pd.DataFrame) -> pd.DataFrame:
+    """Producteurs saisis sur plusieurs fiches, avec ce que contient chaque fiche."""
+    dup = d[d["prod_code"].notna() & d["prod_code"].duplicated(keep=False)].sort_values(["prod_code", "date"])
+
+    def contenu(r) -> str:
+        docs = [n for n, ok in (("fiche CSSVD", r.doc_fiche == 1), ("promesse de taille", r.doc_promesse == 1)) if ok]
+        return " + ".join(docs) if docs else "aucun document"
+
+    rows = []
+    for code, g in dup.groupby("prod_code", sort=True):
+        rows.append({
+            "Code planteur": code, "Nom producteur": g["prod_nom"].iloc[0],
+            "Coach(s)": ", ".join(sorted(g["agent_id"].dropna().unique())),
+            "Parcelle(s)": ", ".join(sorted(g["plantation"].dropna().unique())),
+            "Nb fiches": len(g),
+            "Envoyées à Kobo le": ", ".join(g["date"].dt.strftime("%d/%m %H:%M").dropna()),
+            "Contenu de chaque fiche": " | ".join(f"{i}) {contenu(r)}" for i, r in enumerate(g.itertuples(), 1)),
+        })
+    return pd.DataFrame(rows)
+
+
+if n_extra > 0:
+    dbl = doublons_table(df)
+    with st.container(key="card_doublons"):
+        with st.expander(f"⚠ {len(dbl)} producteur(s) saisi(s) sur plusieurs fiches — {n_extra} fiche(s) en trop "
+                         f"(comptés une seule fois dans les compteurs)"):
+            st.caption("Cause habituelle : le coach a rempli un formulaire séparé pour chaque document "
+                       "(fiche CSSVD, promesse de taille…) au lieu d'un seul formulaire par producteur. "
+                       "Les informations des différentes fiches sont regroupées pour ces producteurs. "
+                       "À corriger dans Kobo (supprimer ou fusionner les fiches en trop).")
+            st.dataframe(dbl, width="stretch", hide_index=True)
+            st.download_button("⬇ Exporter la liste des doublons (Excel)", to_xlsx(dbl, "Doublons"),
+                               file_name=f"ecam_doublons_{pd.Timestamp.now():%Y%m%d}.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 st.write("")
 
