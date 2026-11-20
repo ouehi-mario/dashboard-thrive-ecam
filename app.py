@@ -521,6 +521,29 @@ def upas_xlsx_by_section(t: pd.DataFrame) -> bytes:
     return to_xlsx_sheets(sheets)
 
 
+def ecam_xlsx_by_section(t: pd.DataFrame) -> bytes:
+    """Liste ECAM des parcelles avec swollen shoot : feuille « Résumé » + une feuille par section."""
+    t = t.sort_values(["Section", "ID coach", "Nom producteur"], na_position="last")
+    t = t.assign(Section=t["Section"].fillna("Sans section"))
+    oui = lambda c: int((c == "Oui").sum())  # noqa: E731
+    sym_cols = [v[0] for v in SYMPTOMES.values() if v[0] in t]
+    flag_cols = [c for c in ["Engagement", "Fiche inspection CSSVD", "Promesse de taille"] if c in t]
+
+    def summarize(g: pd.DataFrame) -> dict:
+        row = {"Parcelles": len(g), "Producteurs": g["Code planteur"].nunique(), "Coachs": g["ID coach"].nunique(),
+               "Superficie totale (ha)": round(g.drop_duplicates("Code planteur")["Superficie totale (ha)"].sum(), 2)}
+        row.update({c: oui(g[c]) for c in sym_cols})
+        row.update({f"{c} (Oui)": oui(g[c]) for c in flag_cols})
+        return row
+
+    rows = [{"Section": name, **summarize(g)} for name, g in t.groupby("Section", sort=True)]
+    rows.append({"Section": "TOTAL", **summarize(t)})  # producteurs / coachs comptés une seule fois au total
+    sheets = {"Résumé": pd.DataFrame(rows)}
+    for name, g in t.groupby("Section", sort=True):
+        sheets[name] = g.drop(columns="Section")
+    return to_xlsx_sheets(sheets)
+
+
 def symptom_buttons(data: pd.DataFrame, prefix: str) -> None:
     """Un bouton par symptôme ; un clic ouvre la galerie de photos."""
     observed = {k: int((data[k] == 1).sum()) for k in SYMPTOMES}
@@ -1810,10 +1833,15 @@ elif page == "Symptômes":
         photo_cfg = {c: st.column_config.LinkColumn(c, display_text="📷 Voir") for c in tab if c.startswith("Photo")}
         st.dataframe(tab, width="stretch", hide_index=True, height=380, column_config=photo_cfg)
         stamp = pd.Timestamp.now().strftime("%Y%m%d")
-        d1, d2, _ = st.columns([1, 1, 2])
+        d1, d3, d2, _ = st.columns([1, 1.3, 1, 1])
         d1.download_button("⬇ Exporter Excel", to_xlsx(tab), file_name=f"producteurs_swollen_shoot_{stamp}.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            type="primary", width="stretch", disabled=tab.empty)
+        d3.download_button("⬇ Excel par section", ecam_xlsx_by_section(tab) if not tab.empty else b"",
+                           file_name=f"producteurs_swollen_shoot_par_section_{stamp}.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           type="primary", width="stretch", disabled=tab.empty,
+                           help="Une feuille « Résumé » + une feuille par section")
         d2.download_button("⬇ Exporter CSV", tab.to_csv(index=False, sep=";").encode("utf-8-sig"),
                            file_name=f"producteurs_swollen_shoot_{stamp}.csv", mime="text/csv",
                            width="stretch", disabled=tab.empty)
