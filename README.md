@@ -159,7 +159,7 @@ Chaque publication est enregistrée comme une version dans le dépôt de donnée
 
 ## 3 bis. Utilisation
 
-- **Mode clair / sombre** : automatique, selon le réglage du téléphone ou du PC (application et rapport hors ligne).
+- **Mode clair / sombre** : automatique selon le réglage du téléphone ou du PC ; le bouton 🌙 / ☀️ de l'en-tête permet de choisir (le choix est mémorisé sur l'appareil). Le rapport hors ligne a son propre bouton ◐.
 - Les utilisateurs n'ont rien à charger : ils voient la dernière version publiée
   (date affichée dans ⚙ Paramètres).
 - **Objectif** : 1 000 producteurs par défaut (modifiable dans ⚙ Paramètres).

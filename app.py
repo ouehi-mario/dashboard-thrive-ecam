@@ -254,26 +254,43 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
 .stats .lab { margin-left: 40px; }
 
 
-/* ===================== Mode sombre (suit le réglage du téléphone / PC) ===================== */
+
+/* Bouton mode clair / sombre */
+.tt-theme { width:42px; height:42px; border-radius:50%; border:1px solid var(--line); background:var(--btn);
+  box-shadow:var(--shadow); cursor:pointer; font-size:18px; line-height:1; display:grid; place-items:center;
+  transition: transform .15s, border-color .15s; padding:0; }
+.tt-theme:hover { transform: translateY(-1px) rotate(-12deg); border-color: var(--g2); }
+/* ===================== Mode sombre =====================
+   - automatique : suit le réglage du téléphone / PC
+   - forcé : bouton 🌙 / ☀️ de l'en-tête (attribut data-theme sur <html>) */
 @media (prefers-color-scheme: dark) {
-  :root { --ink:#e8f2e5; --muted:#9db29a; --line:rgba(220,240,215,.10); --soft:#1f3122; --hero:#2b5a33; --hero2:#3f8049;
-    --g1:#62b866; --g2:#86cc82; --g3:#3f7a43; --amber:#f0b54f; --red:#ee7a72;
-    --bg:#0f1a11; --bg2:#14291a; --card:rgba(28,42,30,.78); --card-solid:#1a291c; --btn:rgba(36,54,38,.9);
-    --accent:#9fd89a; --warn-ink:#f3c977; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35); }
-  .stApp .muted, .stApp [data-testid="stCaptionContainer"] p { color: var(--muted) !important; }
-  .kpi.hero .ring .pr { stroke:#c8f0c2; }
-  .stButton button p, .stDownloadButton button p, [data-testid="stPopover"] button p { color: var(--ink) !important; }
-  .st-key-offline_dl button p, .stButton button[kind="primary"] p { color:#fff !important; }
-  .kp-striped span { color: var(--ink); }
-  .ev.w small { color: var(--muted); }
-  /* graphiques Plotly : couleurs fixes du mode clair adaptées au fond sombre */
-  .js-plotly-plot [style*="fill: rgb(29, 54, 34)"] { fill:#dcefd8 !important; }
-  [style*="background:#1d3622"], [style*="background: #1d3622"], [style*="background: rgb(29, 54, 34)"] { background:#3f8049 !important; }
-  .js-plotly-plot [style*="fill: rgb(34, 34, 34)"] { fill:var(--ink) !important; }
-  .js-plotly-plot [style*="fill: rgb(102, 102, 102)"], .js-plotly-plot [style*="fill: rgb(106, 123, 105)"] { fill:var(--muted) !important; }
-  .js-plotly-plot [style*="fill: rgb(0, 0, 0)"][style*="fill-opacity: 0.07"] { fill:#ffffff !important; fill-opacity:.1 !important; }
-  .js-plotly-plot [style*="fill: rgb(185, 196, 182)"] { fill:#5c6e5a !important; }
+  :root:not([data-theme="light"]) {--ink:#e8f2e5; --muted:#9db29a; --line:rgba(220,240,215,.10); --soft:#1f3122; --hero:#2b5a33; --hero2:#3f8049; --g1:#62b866; --g2:#86cc82; --g3:#3f7a43; --amber:#f0b54f; --red:#ee7a72; --bg:#0f1a11; --bg2:#14291a; --card:rgba(28,42,30,.78); --card-solid:#1a291c; --btn:rgba(36,54,38,.9); --accent:#9fd89a; --warn-ink:#f3c977; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);}
+  :root:not([data-theme="light"]) .stApp .muted, :root:not([data-theme="light"]) .stApp [data-testid="stCaptionContainer"] p {color: var(--muted) !important;}
+  :root:not([data-theme="light"]) .kpi.hero .ring .pr {stroke:#c8f0c2;}
+  :root:not([data-theme="light"]) .stButton button p, :root:not([data-theme="light"]) .stDownloadButton button p, :root:not([data-theme="light"]) [data-testid="stPopover"] button p {color: var(--ink) !important;}
+  :root:not([data-theme="light"]) .st-key-offline_dl button p, :root:not([data-theme="light"]) .stButton button[kind="primary"] p {color:#fff !important;}
+  :root:not([data-theme="light"]) .kp-striped span {color: var(--ink);}
+  :root:not([data-theme="light"]) .ev.w small {color: var(--muted);}
+  :root:not([data-theme="light"]) .js-plotly-plot [style*="fill: rgb(29, :root:not([data-theme="light"]) 54, :root:not([data-theme="light"]) 34)"] {fill:#dcefd8 !important;}
+  :root:not([data-theme="light"]) [style*="background:#1d3622"], :root:not([data-theme="light"]) [style*="background: #1d3622"], :root:not([data-theme="light"]) [style*="background: rgb(29, :root:not([data-theme="light"]) 54, :root:not([data-theme="light"]) 34)"] {background:#3f8049 !important;}
+  :root:not([data-theme="light"]) .js-plotly-plot [style*="fill: rgb(34, :root:not([data-theme="light"]) 34, :root:not([data-theme="light"]) 34)"] {fill:var(--ink) !important;}
+  :root:not([data-theme="light"]) .js-plotly-plot [style*="fill: rgb(102, :root:not([data-theme="light"]) 102, :root:not([data-theme="light"]) 102)"], :root:not([data-theme="light"]) .js-plotly-plot [style*="fill: rgb(106, :root:not([data-theme="light"]) 123, :root:not([data-theme="light"]) 105)"] {fill:var(--muted) !important;}
+  :root:not([data-theme="light"]) .js-plotly-plot [style*="fill: rgb(0, :root:not([data-theme="light"]) 0, :root:not([data-theme="light"]) 0)"][style*="fill-opacity: 0.07"] {fill:#ffffff !important; fill-opacity:.1 !important;}
+  :root:not([data-theme="light"]) .js-plotly-plot [style*="fill: rgb(185, :root:not([data-theme="light"]) 196, :root:not([data-theme="light"]) 182)"] {fill:#5c6e5a !important;}
 }
+:root[data-theme="dark"] {--ink:#e8f2e5; --muted:#9db29a; --line:rgba(220,240,215,.10); --soft:#1f3122; --hero:#2b5a33; --hero2:#3f8049; --g1:#62b866; --g2:#86cc82; --g3:#3f7a43; --amber:#f0b54f; --red:#ee7a72; --bg:#0f1a11; --bg2:#14291a; --card:rgba(28,42,30,.78); --card-solid:#1a291c; --btn:rgba(36,54,38,.9); --accent:#9fd89a; --warn-ink:#f3c977; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);}
+:root[data-theme="dark"] .stApp .muted, :root[data-theme="dark"] .stApp [data-testid="stCaptionContainer"] p {color: var(--muted) !important;}
+:root[data-theme="dark"] .kpi.hero .ring .pr {stroke:#c8f0c2;}
+:root[data-theme="dark"] .stButton button p, :root[data-theme="dark"] .stDownloadButton button p, :root[data-theme="dark"] [data-testid="stPopover"] button p {color: var(--ink) !important;}
+:root[data-theme="dark"] .st-key-offline_dl button p, :root[data-theme="dark"] .stButton button[kind="primary"] p {color:#fff !important;}
+:root[data-theme="dark"] .kp-striped span {color: var(--ink);}
+:root[data-theme="dark"] .ev.w small {color: var(--muted);}
+:root[data-theme="dark"] .js-plotly-plot [style*="fill: rgb(29, :root[data-theme="dark"] 54, :root[data-theme="dark"] 34)"] {fill:#dcefd8 !important;}
+:root[data-theme="dark"] [style*="background:#1d3622"], :root[data-theme="dark"] [style*="background: #1d3622"], :root[data-theme="dark"] [style*="background: rgb(29, :root[data-theme="dark"] 54, :root[data-theme="dark"] 34)"] {background:#3f8049 !important;}
+:root[data-theme="dark"] .js-plotly-plot [style*="fill: rgb(34, :root[data-theme="dark"] 34, :root[data-theme="dark"] 34)"] {fill:var(--ink) !important;}
+:root[data-theme="dark"] .js-plotly-plot [style*="fill: rgb(102, :root[data-theme="dark"] 102, :root[data-theme="dark"] 102)"], :root[data-theme="dark"] .js-plotly-plot [style*="fill: rgb(106, :root[data-theme="dark"] 123, :root[data-theme="dark"] 105)"] {fill:var(--muted) !important;}
+:root[data-theme="dark"] .js-plotly-plot [style*="fill: rgb(0, :root[data-theme="dark"] 0, :root[data-theme="dark"] 0)"][style*="fill-opacity: 0.07"] {fill:#ffffff !important; fill-opacity:.1 !important;}
+:root[data-theme="dark"] .js-plotly-plot [style*="fill: rgb(185, :root[data-theme="dark"] 196, :root[data-theme="dark"] 182)"] {fill:#5c6e5a !important;}
 /* ===================== Version tablette (< 1100 px) ===================== */
 @media (max-width: 1100px) {
   .block-container { padding: 1.4rem 1.4rem 2rem !important; }
@@ -339,6 +356,38 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
   .fn-tr { height: 26px; }
 }
 </style>
+"""
+
+
+THEME_TOGGLE = """
+<button class="tt-theme" type="button" title="Passer en mode sombre / clair" aria-label="Changer de thème">🌙</button>
+<script>
+(() => {
+  // Streamlit garde le thème choisi dans le navigateur sous cette clé (« Light », « Dark » ou « System »)
+  const KEY = `stActiveTheme-${window.location.pathname}-v2`;
+  const root = document.documentElement;
+  const saved = () => { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } };
+  const sync = () => {
+    const t = saved();
+    if (t === "Dark") root.dataset.theme = "dark";
+    else if (t === "Light") root.dataset.theme = "light";
+    else delete root.dataset.theme;
+  };
+  const isDark = () => root.dataset.theme ? root.dataset.theme === "dark"
+                                          : matchMedia("(prefers-color-scheme: dark)").matches;
+  sync();
+  document.querySelectorAll(".tt-theme").forEach((b) => {
+    b.textContent = isDark() ? "☀️" : "🌙";
+    b.title = isDark() ? "Passer en mode clair" : "Passer en mode sombre";
+    if (b.dataset.bound) return;
+    b.dataset.bound = "1";
+    b.addEventListener("click", () => {
+      try { localStorage.setItem(KEY, JSON.stringify(isDark() ? "Light" : "Dark")); } catch (e) { return; }
+      window.location.reload();  // Streamlit applique son thème au chargement de la page
+    });
+  });
+})();
+</script>
 """
 
 
@@ -2163,7 +2212,7 @@ PAGES = {
     "ECAM": ["Tableau de bord", "Producteurs", "Coachs", "Symptômes", "Carte", "Données"],
     "UPAS": ["Tableau de bord", "Suivi producteurs", "Inspections", "Promesses", "Carte", "Données"],
 }
-h1, h0, h2, h4, h3 = st.columns([1.2, 1.25, 4.6, 1.3, 1.1], vertical_alignment="center")
+h1, h0, h2, h4, h5, h3 = st.columns([1.2, 1.25, 4.6, 1.3, .38, 1.1], vertical_alignment="center")
 with h1:
     html("<div class='brand'><div class='lg'>🌿</div><div><b>Thrive·Track</b><small>Suivi CSSVD</small></div></div>")
 with h0:
@@ -2176,6 +2225,8 @@ with h2:
                                     label_visibility="collapsed") or "Tableau de bord"
 with h4:
     offline_button()
+with h5:
+    st.html(THEME_TOGGLE, unsafe_allow_javascript=True)
 with h3:
     pop = st.popover("⚙ Paramètres", width="stretch")
 
