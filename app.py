@@ -23,9 +23,12 @@ import streamlit as st
 st.set_page_config(page_title="Ecam Track · CSSVD", page_icon="🌿", layout="wide")
 
 GREEN = "#5aa55a"
-GREEN_L = "#8fcf86"
-DARK = "#2b2b2b"
-GREY = "#9a9a9a"
+GREEN_L = "#9fd19c"
+DARK = "#1d3622"  # vert profond (remplace le noir)
+GREY = "#b9c4b6"
+G1 = "#2e7d32"
+AMBER = "#e3a33b"
+RED = "#d0564f"
 FONT = "Outfit, sans-serif"
 
 MOIS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août",
@@ -46,51 +49,58 @@ SYMPTOMES = {
 # ----------------------------------------------------------------------------
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=DM+Serif+Display:ital@0;1&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap');
+:root { --ink:#18261a; --muted:#6a7b69; --line:rgba(31,58,36,.09); --soft:#f3f8f0; --hero:#1d3622; --hero2:#2f5a36;
+        --g1:#2e7d32; --g2:#5aa55a; --g3:#9fd19c; --amber:#e3a33b; --red:#d0564f;
+        --shadow:0 1px 2px rgba(20,40,20,.04),0 8px 30px rgba(20,50,20,.07); }
 html, body, .stApp, [class*="css"], button, input, textarea { font-family: 'Outfit', sans-serif !important; }
-.stApp { background: #6bb36a; }
+.stApp { background:#eef6ea;
+  background-image: radial-gradient(900px 500px at 8% -10%, #dcebd5, transparent 60%),
+                    radial-gradient(700px 500px at 100% 0%, #dcebd5, transparent 55%);
+  background-attachment: fixed; color: var(--ink); }
 header[data-testid="stHeader"] { background: transparent; }
-.block-container {
-  max-width: 1440px; margin: 1.6rem auto; padding: 1.8rem 2.2rem 2.4rem !important;
-  background: radial-gradient(1200px 600px at 75% 10%, #e9f5e3 0%, transparent 60%),
-              linear-gradient(140deg, #f1f7ee 0%, #dcefd5 55%, #c6e5be 100%);
-  border-radius: 38px; box-shadow: 0 30px 80px rgba(0,0,0,.18);
-}
-h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: #222; }
+.block-container { max-width: 1400px; padding: 1.4rem 1.6rem 2.6rem !important; }
+h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
+@keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
 
 /* Cartes */
 [class*="st-key-card"] {
-  background: rgba(255,255,255,.55); border: 1px solid rgba(255,255,255,.75);
-  border-radius: 28px; padding: 20px 22px; backdrop-filter: blur(12px);
-  box-shadow: 0 6px 24px rgba(60,110,60,.08);
+  background: rgba(255,255,255,.78); border: 1px solid var(--line);
+  border-radius: 22px; padding: 20px 22px; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--shadow); animation: rise .5s ease both;
 }
 [class*="st-key-dark"] {
-  background: #2c2c2c; border-radius: 28px; padding: 22px 20px; color: #fff;
-  box-shadow: 0 14px 40px rgba(0,0,0,.25);
+  background: linear-gradient(145deg, var(--hero2), var(--hero)); border-radius: 22px; padding: 22px 20px; color: #fff;
+  box-shadow: 0 14px 40px rgba(29,54,34,.28); animation: rise .5s ease both; position: relative; overflow: hidden;
 }
 [class*="st-key-dark"] * { color: #fff; }
 .st-key-card_profile {
-  background: linear-gradient(170deg, #6f9a68 0%, #3e5c3a 55%, #1f2d1d 100%) !important;
+  background: linear-gradient(160deg, #4f8a55 0%, #2f5a36 50%, #1d3622 100%) !important; border: none !important;
   min-height: 300px; position: relative; overflow: hidden;
 }
 .h-equal { min-height: 300px; }
 
 /* Typo */
-.logo { display:inline-block; border:1.5px solid #3a3a3a; border-radius: 999px; padding: 6px 20px;
-        font-size: 1.55rem; font-weight: 400; color:#222; letter-spacing:-.5px; }
-.welcome { font-size: 3.1rem; font-weight: 400; letter-spacing: -1.5px; color:#1f1f1f; margin: 6px 0 4px; }
-.card-title { font-size: 1.35rem; font-weight: 400; color:#222; margin:0; }
-.muted { color:#7b7b7b; font-size:.82rem; }
-.big { font-size: 2.3rem; font-weight: 300; letter-spacing:-1px; line-height:1; }
-.arrow-btn { float:right; width:38px; height:38px; border-radius:50%; background:#fff; display:flex;
-             align-items:center; justify-content:center; font-size:1rem; color:#333; box-shadow:0 2px 6px rgba(0,0,0,.06);}
+.brand { display:flex; align-items:center; gap:12px; }
+.brand .lg { width:44px; height:44px; border-radius:14px; background:linear-gradient(135deg, var(--hero2), var(--hero));
+             display:grid; place-items:center; font-size:22px; box-shadow: var(--shadow); flex:none; }
+.brand b { white-space:nowrap; font-size:1.1rem; font-weight:700; color:var(--ink); letter-spacing:.2px; display:block; line-height:1.15; }
+.brand small { color:var(--muted); font-size:.78rem; }
+.welcome { font-family:'DM Serif Display', Georgia, serif !important; font-size: 3rem; font-weight: 400; letter-spacing: -.5px;
+           color:var(--ink); margin: 6px 0 4px; line-height:1.05; }
+.welcome span { font-family:inherit !important; }
+.card-title { font-size: 1.15rem; font-weight: 600; color:var(--ink); margin:0; }
+.muted { color:var(--muted); font-size:.82rem; }
+.big { font-size: 2.3rem; font-weight: 600; letter-spacing:-1px; line-height:1; }
+.arrow-btn { float:right; width:38px; height:38px; border-radius:50%; background:var(--soft); display:flex;
+             align-items:center; justify-content:center; font-size:1rem; color:var(--ink); border:1px solid var(--line); }
 
 /* Pills de progression */
 .prow { display:flex; gap:8px; align-items:flex-end; }
 .pcol { display:flex; flex-direction:column; gap:6px; }
 .plabel { font-size:.85rem; color:#333; }
 .pill { height:40px; border-radius:999px; display:flex; align-items:center; padding:0 16px; font-size:.8rem; }
-.pill.dark { background:#2c2c2c; color:#fff; }
+.pill.dark { background:var(--hero); color:#fff; }
 .pill.green { background:#5aa55a; color:#fff; }
 .pill.outline { border:1.5px solid #9a9a9a; color:#333; background:transparent; }
 .pill.striped { padding:0; overflow:hidden; background: repeating-linear-gradient(-55deg, rgba(255,255,255,.0) 0 6px, rgba(255,255,255,.75) 6px 9px); border:1px solid rgba(255,255,255,.6);}
@@ -98,39 +108,53 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: #222; }
   background: repeating-linear-gradient(-55deg, #5aa55a 0 8px, #6cb46a 8px 12px); }
 
 /* Pills KPI (Engagement / Inspection / Promesse) */
-.kp-row { display:flex; gap:42px; align-items:flex-end; margin-top:10px; }
-.kp { display:flex; flex-direction:column; align-items:center; gap:8px; flex:1; max-width:190px; }
-.kp-lab { font-style:italic; font-weight:500; font-size:1rem; color:#2a2a2a; white-space:nowrap; }
-.kp-pill { position:relative; width:100%; height:36px; border-radius:999px; overflow:hidden; display:flex; align-items:center;
-           box-shadow: 0 2px 6px rgba(0,0,0,.12); }
-.kp-pill span { position:relative; z-index:1; padding-left:14px; font-weight:700; font-size:1.25rem; font-family: Arial, sans-serif; }
-.kp-striped { background: repeating-linear-gradient(-55deg, #ffffff 0 7px, #e6efe3 7px 10px); }
-.kp-striped span { color:#111; }
-.kp-fill { position:absolute; left:0; top:0; bottom:0; min-width:7px; border-radius:999px 0 0 999px;
-           background: linear-gradient(180deg, #4aa64f, #2e7d32); }
-.kp-green { background: linear-gradient(180deg, #2f8a35 0%, #1f6a24 100%); }
+.kp-row { display:flex; gap:22px; align-items:flex-end; margin-top:14px; }
+.kp { display:flex; flex-direction:column; align-items:flex-start; gap:8px; flex:1; max-width:200px; }
+.kp-lab { font-weight:500; font-size:.88rem; color:var(--muted); white-space:nowrap; }
+.kp-pill { position:relative; width:100%; height:40px; border-radius:999px; overflow:hidden; display:flex; align-items:center;
+           box-shadow: var(--shadow); border:1px solid var(--line); }
+.kp-pill span { position:relative; z-index:1; padding-left:16px; font-weight:600; font-size:1.15rem; }
+.kp-striped { background: rgba(255,255,255,.8); }
+.kp-striped span { color:var(--ink); }
+.kp-fill { position:absolute; left:0; top:0; bottom:0; min-width:8px; border-radius:999px;
+           background: linear-gradient(90deg, var(--g3), var(--g2)); }
+.kp-green { background: linear-gradient(135deg, var(--g2), var(--g1)); border-color:transparent; }
 .kp-green span, .kp-dark span { color:#fff; }
-.kp-dark { background: linear-gradient(180deg, #3a3a3a 0%, #0f0f0f 100%); }
+.kp-dark { background: linear-gradient(135deg, var(--hero2), var(--hero)); border-color:transparent; }
 
-/* Compteurs x / objectif */
-.cnt-row { display:grid; grid-template-columns: repeat(5, 1fr); gap:14px; margin: 18px 0 6px; }
-.cnt { position:relative; text-align:center; padding:18px 12px 16px; border-radius:24px;
-       background: linear-gradient(160deg, rgba(255,255,255,.75), rgba(255,255,255,.35));
-       border:1px solid rgba(255,255,255,.85); box-shadow: 0 8px 24px rgba(50,100,50,.10); overflow:hidden; }
-.cnt::before { content:""; position:absolute; left:0; top:0; height:4px; width:100%; background:var(--c); opacity:.9; }
-.cnt .n { font-family:'DM Serif Display', Georgia, serif !important; font-size:2.6rem; line-height:1; color:#1d1d1d; letter-spacing:-.5px; }
-.cnt .n small { font-size:1.35rem; color:#8a8a8a; margin-left:2px; font-family:'DM Serif Display', Georgia, serif !important; }
-.cnt .lb { margin-top:8px; font-style:italic; font-weight:500; font-size:.95rem; color:#333; line-height:1.15; }
-.cnt .tr { margin:12px auto 0; height:6px; width:82%; border-radius:99px; background:rgba(0,0,0,.07); overflow:hidden; }
-.cnt .tr > div { height:100%; border-radius:99px; background:var(--c); }
-.cnt .pc { margin-top:6px; font-size:.75rem; color:#6b6b6b; }
-@media (max-width: 900px) { .cnt-row { grid-template-columns: repeat(2, 1fr); } }
+/* Compteurs x / objectif : cartes avec anneau (même design que le rapport hors ligne) */
+.kpis { display:grid; grid-template-columns: 1.35fr repeat(4, 1fr); gap:16px; margin: 18px 0 14px; }
+.kpi { position:relative; overflow:hidden; background:rgba(255,255,255,.78); border:1px solid var(--line); border-radius:22px;
+       padding:18px 20px; box-shadow:var(--shadow); backdrop-filter:blur(18px); animation: rise .5s ease both; min-width:0; }
+.kpi .lab { font-size:.84rem; color:var(--muted); font-weight:500; display:flex; align-items:center; gap:8px; line-height:1.15; }
+.kpi .ico { width:30px; height:30px; border-radius:10px; display:grid; place-items:center; background:var(--soft); font-size:15px; flex:none; }
+.kpi .row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:12px; }
+.kpi .val { font-size:2.3rem; font-weight:600; letter-spacing:-1px; line-height:1; color:var(--ink); white-space:nowrap; }
+.kpi .val small { font-size:.9rem; color:var(--muted); font-weight:400; letter-spacing:0; margin-left:3px; }
+.kpi .sub { font-size:.78rem; color:var(--muted); margin-top:10px; line-height:1.35; }
+.kpi .sub b { color:var(--red); }
+.ring { width:60px; height:60px; flex:none; }
+.ring circle { fill:none; stroke-width:7; }
+.ring .tr { stroke:rgba(31,58,36,.09); }
+.ring .pr { stroke:var(--g2); stroke-linecap:round; transform:rotate(-90deg); transform-origin:50% 50%; }
+.ring text { font:600 13px 'Outfit', sans-serif; fill:var(--ink); text-anchor:middle; dominant-baseline:central; }
+.kpi.red .pr { stroke:var(--red); } .kpi.amber .pr { stroke:var(--amber); }
+.kpi.hero { background:linear-gradient(145deg, var(--hero2), var(--hero)); border-color:transparent; }
+.kpi.hero .lab, .kpi.hero .sub, .kpi.hero .val small { color:rgba(255,255,255,.75); }
+.kpi.hero .sub b { color:#ffd0cc; }
+.kpi.hero .val { color:#fff; font-size:3rem; }
+.kpi.hero .ico { background:rgba(255,255,255,.14); }
+.kpi.hero .ring { width:82px; height:82px; }
+.kpi.hero .ring .tr { stroke:rgba(255,255,255,.16); } .kpi.hero .ring .pr { stroke:#c8f0c2; }
+.kpi.hero .ring text { fill:#fff; font-size:14px; }
+.kpi.hero::after { content:""; position:absolute; right:-60px; bottom:-80px; width:220px; height:220px; border-radius:50%;
+                   background:radial-gradient(circle, rgba(255,255,255,.12), transparent 70%); }
 
 /* Boutons symptômes (liste sombre cliquable) */
-[class*="st-key-dark"] button { background:#3a3a3a !important; border:none !important; border-radius:999px !important;
+.stApp [class*="st-key-dark"] button { background:rgba(255,255,255,.1) !important; box-shadow:none !important; border:none !important; border-radius:999px !important;
   min-height:46px; margin:1px 0; transition: background .15s, transform .15s; }
-[class*="st-key-dark"] button:hover { background:#5aa55a !important; transform: translateX(3px); }
-[class*="st-key-dark"] button:disabled { background:#333 !important; opacity:.45; }
+.stApp [class*="st-key-dark"] button:hover { background:rgba(255,255,255,.22) !important; transform: translateX(3px); }
+.stApp [class*="st-key-dark"] button:disabled { background:rgba(255,255,255,.05) !important; opacity:.45; }
 [class*="st-key-dark"] button > div { justify-content:flex-start !important; width:100%; }
 [class*="st-key-dark"] button p { color:#fff !important; font-size:.86rem; text-align:left; }
 
@@ -139,24 +163,32 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: #222; }
 .fn-lab { font-size:.85rem; color:rgba(255,255,255,.9); display:flex; justify-content:space-between; margin-bottom:5px; }
 .fn-conv { font-size:.72rem; background:rgba(255,255,255,.18); border-radius:99px; padding:1px 8px; }
 .fn-tr { position:relative; height:30px; border-radius:99px; background:rgba(255,255,255,.12); overflow:hidden; }
-.fn-tr > div { height:100%; border-radius:99px; background:linear-gradient(90deg, rgba(255,255,255,.85), rgba(255,255,255,.55)); }
+.fn-tr > div { height:100%; border-radius:99px; background:linear-gradient(90deg, #c8f0c2, rgba(255,255,255,.6)); }
 .fn-tr b { position:absolute; right:12px; top:4px; color:#fff; font-weight:500; font-size:.95rem; }
 
-/* Sélecteur de coopérative */
-.st-key-coop [data-testid="stButtonGroup"] { background: rgba(255,255,255,.6); border-radius:999px; padding:4px; display:inline-flex; }
-.st-key-coop button { border:none !important; border-radius:999px !important; background:transparent !important; font-size:.85rem; padding: 4px 16px !important; min-height:34px; font-weight:600; }
-.st-key-coop button[aria-checked="true"], .st-key-coop button[kind="segmented_controlActive"] { background:#5aa55a !important; }
-.st-key-coop button[aria-checked="true"] p, .st-key-coop button[kind="segmented_controlActive"] p { color:#fff !important; }
+/* Sélecteur de coopérative + navigation : pilule en verre, bouton actif vert profond */
+.st-key-coop [data-testid="stButtonGroup"], .st-key-nav [data-testid="stButtonGroup"] {
+  background: rgba(255,255,255,.78); backdrop-filter: blur(14px); border:1px solid var(--line); border-radius:999px;
+  padding:4px; display:inline-flex; box-shadow: var(--shadow); }
+.st-key-coop button, .st-key-nav button { border:none !important; border-radius:999px !important; background:transparent !important;
+  font-size:.88rem; padding: 4px 16px !important; min-height:36px; transition: background .2s, transform .15s; }
+.st-key-coop button p, .st-key-nav button p { color: var(--muted) !important; font-weight:600; }
+.st-key-coop button:hover p, .st-key-nav button:hover p { color: var(--ink) !important; }
+.st-key-coop button[aria-checked="true"], .st-key-coop button[kind="segmented_controlActive"],
+.st-key-nav button[aria-checked="true"], .st-key-nav button[kind="segmented_controlActive"] {
+  background: var(--hero) !important; box-shadow: 0 4px 14px rgba(29,54,34,.3); }
+.st-key-coop button[aria-checked="true"] p, .st-key-coop button[kind="segmented_controlActive"] p,
+.st-key-nav button[aria-checked="true"] p, .st-key-nav button[kind="segmented_controlActive"] p { color:#fff !important; }
 
 /* Alerte doublons */
-.st-key-card_doublons { border-left: 6px solid #d9534f !important; padding: 6px 18px !important; }
-.st-key-card_doublons summary p { color:#a93226 !important; font-weight:600; }
+.st-key-card_doublons { background: color-mix(in srgb, var(--amber) 13%, #fff) !important; border:1px solid color-mix(in srgb, var(--amber) 40%, transparent) !important; padding: 6px 18px !important; }
+.st-key-card_doublons summary p { color:#7a4d00 !important; font-weight:600; }
 
 /* Gros chiffres */
 .stat { display:flex; align-items:flex-end; gap:10px; }
-.stat .ic { width:30px; height:30px; border-radius:50%; background:rgba(255,255,255,.6); display:flex; align-items:center; justify-content:center; font-size:.85rem; margin-bottom:8px;}
-.stat .num { font-size:3.6rem; font-weight:300; letter-spacing:-2px; line-height:1; color:#1f1f1f; }
-.stat .lab { font-size:.8rem; color:#333; margin-top:-2px; }
+.stat .ic { width:32px; height:32px; border-radius:10px; background:rgba(255,255,255,.85); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:.85rem; margin-bottom:8px;}
+.stat .num { font-size:3.2rem; font-weight:600; letter-spacing:-1.5px; line-height:1; color:var(--ink); }
+.stat .lab { font-size:.8rem; color:var(--muted); margin-top:2px; }
 
 /* Profil */
 .prof-av { width:150px; height:150px; border-radius:50%; margin: 18px auto 0; display:flex; align-items:center; justify-content:center;
@@ -183,7 +215,7 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: #222; }
 
 /* Calendrier */
 .cal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
-.cal-chip { background:#fff; border-radius:999px; padding:4px 14px; font-size:.78rem; color:#333; }
+.cal-chip { background:var(--soft); border:1px solid var(--line); border-radius:999px; padding:4px 14px; font-size:.78rem; color:var(--ink); }
 .cal { display:grid; gap:0; position:relative; }
 .cal .dh { text-align:center; font-size:.85rem; color:#888; padding-bottom:6px; }
 .cal .dh b { display:block; font-weight:400; color:#888; }
@@ -191,25 +223,27 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: #222; }
 .cal .hr { font-size:.78rem; color:#333; padding-top:10px; }
 .cal .cell { border-left:1.5px dashed rgba(0,0,0,.12); min-height:48px; padding:4px 5px; }
 .ev { border-radius:14px; padding:6px 10px; font-size:.72rem; line-height:1.15; margin-bottom:4px; box-shadow:0 2px 8px rgba(0,0,0,.06);}
-.ev.g { background:#5aa55a; color:#fff; } .ev.w { background:#fff; color:#222; }
+.ev.g { background:linear-gradient(135deg, var(--g2), var(--g1)); color:#fff; } .ev.w { background:#fff; color:var(--ink); border:1px solid var(--line); }
 .ev small { display:block; opacity:.8; font-size:.65rem; }
 
 /* Liste repliable / mini barres */
 [data-testid="stExpander"] details { border:none !important; background:transparent !important; }
-[data-testid="stExpander"] summary { border-bottom:1.5px dashed rgba(0,0,0,.15); padding-left:0; }
-[data-testid="stExpander"] summary p { font-size:1rem; color:#222; }
+[data-testid="stExpander"] summary { border-bottom:1px solid var(--line); padding-left:0; }
+[data-testid="stExpander"] summary p { font-size:.98rem; color:var(--ink); font-weight:500; }
 .mini { display:flex; align-items:center; gap:10px; margin:6px 0; font-size:.82rem; }
 .mini .nm { width:46%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#333;}
-.mini .tr { flex:1; height:8px; border-radius:99px; background:rgba(0,0,0,.07); overflow:hidden; }
-.mini .tr > div { height:100%; border-radius:99px; background:#5aa55a; }
+.mini .tr { flex:1; height:8px; border-radius:99px; background:var(--soft); overflow:hidden; }
+.mini .tr > div { height:100%; border-radius:99px; background:linear-gradient(90deg, var(--g2), var(--g1)); }
 .mini .vl { width:38px; text-align:right; color:#555; }
 
-/* Navigation */
-.st-key-nav [data-testid="stButtonGroup"] { background: rgba(255,255,255,.6); border-radius:999px; padding:4px; display:inline-flex; }
-.st-key-nav button { border:none !important; border-radius:999px !important; background:transparent !important; font-size:.85rem; padding: 4px 14px !important; min-height:34px; }
-.st-key-nav button[aria-checked="true"], .st-key-nav button[kind="segmented_controlActive"] { background:#2c2c2c !important; color:#fff !important; }
-.st-key-nav button[aria-checked="true"] p, .st-key-nav button[kind="segmented_controlActive"] p { color:#fff !important; }
-[data-testid="stPopover"] button { border-radius:999px !important; background:rgba(255,255,255,.7) !important; border:none !important; }
+[data-testid="stPopover"] button, .stDownloadButton button, .stButton button, .stLinkButton a {
+  border-radius:999px !important; border:1px solid var(--line) !important; background:rgba(255,255,255,.85) !important;
+  box-shadow: var(--shadow); transition: transform .15s, border-color .15s; font-weight:500; }
+[data-testid="stPopover"] button:hover, .stDownloadButton button:hover, .stButton button:hover { border-color: var(--g2) !important; transform: translateY(-1px); }
+.stButton button[kind="primary"] { background: var(--hero) !important; color:#fff !important; border-color:transparent !important; }
+.stButton button[kind="primary"] p { color:#fff !important; }
+[data-testid="stDataFrame"] { border-radius:14px; overflow:hidden; border:1px solid var(--line); }
+[data-testid="stTextInput"] input, [data-baseweb="select"] > div { border-radius:12px !important; }
 .st-key-offline_dl button { border-radius:999px !important; border:none !important; color:#fff !important; font-weight:600 !important;
   background:linear-gradient(135deg,#3b7a45,#1d3622) !important; box-shadow:0 6px 18px rgba(29,54,34,.28); transition:transform .15s; }
 .st-key-offline_dl button:hover { transform:translateY(-1px); }
@@ -221,16 +255,15 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: #222; }
   .block-container { padding: 1.4rem 1.4rem 2rem !important; }
   .kp-row { gap: 16px; }
   .stat .num { font-size: 2.8rem; }
-  .cnt .n { font-size: 2.1rem; }
+  .kpis { grid-template-columns: repeat(3, 1fr); }
+  .kpi.hero { grid-column: span 3; }
 }
 /* ===================== Version téléphone (< 768 px) ===================== */
 @media (max-width: 768px) {
-  .stApp { background: #eef6ea; }
-  .block-container { margin: 0 auto !important; padding: .9rem .75rem 1.6rem !important; border-radius: 0;
-                     box-shadow: none; max-width: 100vw !important; overflow-x: hidden; }
+  .block-container { margin: 0 auto !important; padding: .9rem .75rem 1.6rem !important; max-width: 100vw !important; overflow-x: hidden; }
   [data-testid="stHorizontalBlock"] { gap: .6rem !important; }
-  .logo { font-size: 1.15rem; padding: 4px 14px; }
-  .welcome { font-size: 2rem; letter-spacing: -.8px; margin: 2px 0; }
+  .brand .lg { width:38px; height:38px; font-size:19px; }
+  .welcome { font-size: 2.1rem; margin: 2px 0; }
   /* menus : défilement horizontal au doigt au lieu de déborder */
   .st-key-nav [data-testid="stButtonGroup"], .st-key-coop [data-testid="stButtonGroup"] {
     display: flex !important; flex-wrap: nowrap !important; overflow-x: auto; max-width: 100%;
@@ -239,7 +272,7 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: #222; }
   .st-key-nav button, .st-key-coop button { flex: 0 0 auto; white-space: nowrap; }
   /* pastilles */
   .kp-row { gap: 8px; flex-wrap: nowrap; }
-  .kp { min-width: 0; max-width: none; flex: 1 1 0; gap: 5px; }
+  .kp { min-width: 0; max-width: none; flex: 1 1 0; gap: 5px; align-items: stretch; }
   .kp-lab { font-size: .7rem; white-space: normal; text-align: center; line-height: 1.1; min-height: 2.2em;
             display: flex; align-items: flex-end; }
   .kp-pill { height: 30px; }
@@ -251,13 +284,13 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: #222; }
   .stat .num { font-size: 2.1rem; letter-spacing: -1px; }
   .stats .lab { margin-left: 0; text-align: center; font-size: .72rem; }
   /* compteurs / objectif : 1 grand + grille 2 x 2 */
-  .cnt-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
-  .cnt-row > .cnt:first-child { grid-column: 1 / -1; }
-  .cnt { padding: 14px 8px 12px; border-radius: 18px; }
-  .cnt .n { font-size: 1.9rem; }
-  .cnt .n small { font-size: .95rem; }
-  .cnt .lb { font-size: .78rem; }
-  .cnt .pc { font-size: .66rem; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+  .kpi.hero { grid-column: 1 / -1; }
+  .kpi { padding: 14px; border-radius: 18px; }
+  .kpi .val { font-size: 1.8rem; } .kpi.hero .val { font-size: 2.6rem; }
+  .ring { width: 46px; height: 46px; } .kpi.hero .ring { width: 70px; height: 70px; }
+  .kpi .lab { font-size: .76rem; } .kpi .ico { width: 26px; height: 26px; font-size: 13px; }
+  .kpi .sub { font-size: .7rem; }
   /* cartes */
   [class*="st-key-card"], [class*="st-key-dark"] { padding: 14px 14px !important; border-radius: 20px; }
   .st-key-card_profile { min-height: 0; }
@@ -288,6 +321,28 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: #222; }
 def html(s: str) -> None:
     """Rend du HTML sans que Markdown n'interprète l'indentation."""
     st.markdown("\n".join(line.strip() for line in s.splitlines()), unsafe_allow_html=True)
+
+
+def ring_svg(p: float) -> str:
+    """Anneau de progression SVG (p en %)."""
+    p = max(0.0, min(float(p or 0), 100.0))
+    c = 2 * np.pi * 26
+    return (f"<svg class='ring' viewBox='0 0 64 64'><circle class='tr' cx='32' cy='32' r='26'/>"
+            f"<circle class='pr' cx='32' cy='32' r='26' stroke-dasharray='{c:.1f}' stroke-dashoffset='{c * (1 - p / 100):.1f}'/>"
+            f"<text x='32' y='32'>{p:.0f}%</text></svg>")
+
+
+def kpi_cards(items: list[dict], cible: int) -> str:
+    """Compteurs « x / objectif » : 1 grande carte verte + 4 cartes avec anneau."""
+    out = []
+    for i, k in enumerate(items):
+        hero = i == 0
+        out.append(
+            f"<div class='kpi {'hero' if hero else ''} {k.get('cls', '')}'>"
+            f"<div class='lab'><span class='ico'>{k['ico']}</span>{k['lab']}</div>"
+            f"<div class='row'><div class='val'>{fmt(k['v'])}<small>/ {fmt(cible)}</small></div>{ring_svg(k['p'])}</div>"
+            f"<div class='sub'>{k['sub']}</div></div>")
+    return "<div class='kpis'>" + "".join(out) + "</div>"
 
 
 def fmt(x: float, d: int = 0) -> str:
@@ -1272,7 +1327,7 @@ def watch_updates(slots: tuple[str, ...], key: str) -> None:
 # ----------------------------------------------------------------------------
 def base_layout(fig: go.Figure, h: int) -> go.Figure:
     fig.update_layout(height=h, margin=dict(l=0, r=0, t=10, b=0), paper_bgcolor="rgba(0,0,0,0)",
-                      plot_bgcolor="rgba(0,0,0,0)", font=dict(family=FONT, color="#555"), showlegend=False)
+                      plot_bgcolor="rgba(0,0,0,0)", font=dict(family=FONT, color="#6a7b69"), showlegend=False)
     return fig
 
 
@@ -1650,7 +1705,7 @@ def render_upas(page: str, pop) -> None:
     with w1:
         k_eng, k_insp, k_prom = n_eng / cible, n_insp / cible, n_prom / cible
         html(f"""
-        <div class='welcome'>Bienvenue, <span style='color:#3e7a3c'>UPAS</span></div>
+        <div class='welcome'>Coopérative <span style='color:#2f5a36'>UPAS</span></div>
         <div class='kp-row'>
           <div class='kp'><span class='kp-lab'>Engagement du ménage</span>
             <div class='kp-pill kp-striped'><div class='kp-fill' style='width:{min(k_eng * 100, 100):.1f}%'></div>
@@ -1672,21 +1727,24 @@ def render_upas(page: str, pop) -> None:
 
     def note(k: str) -> str:
         if n_double[k] > 0:
-            return f"{n_lignes[k]} fiches · <b style='color:#c0392b'>{n_double[k]} en double</b>"
-        return f"{n_lignes[k]} fiches" if n_lignes[k] else ""
+            return f"<b>{n_double[k]} en double</b>"
+        return ""
 
-    compteurs = [
-        ("Producteurs suivis", n_suivis, "#8fcf86", ""),
-        ("Engagement du ménage", n_eng, GREEN, note("eng")),
-        ("Inspection CSSVD", n_insp, "#1f6a24", note("insp")),
-        ("Promesse de taille", n_prom, DARK, note("prom")),
-        ("Parcours complet", n_complet, "#c9a227", ""),
-    ]
-    html("<div class='cnt-row'>" + "".join(
-        f"<div class='cnt' style='--c:{c}'><div class='n'>{v}<small>/{fmt(cible)}</small></div>"
-        f"<div class='lb'>{lab}</div><div class='tr'><div style='width:{min(v / cible * 100, 100):.1f}%'></div></div>"
-        f"<div class='pc'>{v / cible * 100:.1f} % de l'objectif</div>"
-        f"{f'<div class=pc>{nt}</div>' if nt else ''}</div>" for lab, v, c, nt in compteurs) + "</div>")
+    def r(a, b):
+        return a / b * 100 if b else 0
+
+    html(kpi_cards([
+        {"lab": "Producteurs suivis", "ico": "👥", "v": n_suivis, "p": r(n_suivis, cible),
+         "sub": f"{r(n_suivis, cible):.0f} % de l'objectif · {fmt(max(cible - n_suivis, 0))} restants"},
+        {"lab": "Engagement du ménage", "ico": "🤝", "v": n_eng, "p": r(n_eng, n_suivis),
+         "sub": " · ".join(x for x in [f"{r(n_eng, n_suivis):.0f} % des suivis", note("eng")] if x)},
+        {"lab": "Inspection CSSVD", "ico": "🔍", "v": n_insp, "p": r(n_insp, n_eng),
+         "sub": " · ".join(x for x in [f"{r(n_insp, n_eng):.0f} % des engagés", note("insp")] if x)},
+        {"lab": "Promesse de taille", "ico": "✂️", "v": n_prom, "p": r(n_prom, n_insp), "cls": "amber",
+         "sub": " · ".join(x for x in [f"{r(n_prom, n_insp):.0f} % des inspectés", note("prom")] if x)},
+        {"lab": "Parcours complet", "ico": "🏁", "v": n_complet, "p": r(n_complet, n_suivis),
+         "sub": f"{r(n_complet, n_suivis):.0f} % des suivis"},
+    ], cible))
 
     if not anomalies.empty:
         resume = " · ".join(f"{n} {k.lower()}" for k, n in anomalies["Anomalie"].value_counts().items())
@@ -1731,7 +1789,7 @@ def render_upas(page: str, pop) -> None:
                 n_foy = int((insp["foyers"] == True).sum())  # noqa: E712
                 html(f"""<div style='display:flex; gap:8px; justify-content:center; flex-wrap:wrap'>
                 <span class='cal-chip'>✓ Saines · {ins_ok - n_signes}</span><span class='cal-chip'>⚠ Signes · {n_signes}</span>
-                <span class='cal-chip' style='background:#2c2c2c;color:#fff'>Foyers · {n_foy}</span></div>""")
+                <span class='cal-chip' style='background:var(--hero);color:#fff;border-color:transparent'>Foyers · {n_foy}</span></div>""")
 
             b1, b2 = st.columns([1, 2], gap="medium")
             with b1, st.container(key="card_accordion"):
@@ -2081,9 +2139,9 @@ PAGES = {
     "ECAM": ["Tableau de bord", "Producteurs", "Coachs", "Symptômes", "Carte", "Données"],
     "UPAS": ["Tableau de bord", "Suivi producteurs", "Inspections", "Promesses", "Carte", "Données"],
 }
-h1, h0, h2, h4, h3 = st.columns([1.05, 1.15, 4.4, 1.45, 1.25], vertical_alignment="center")
+h1, h0, h2, h4, h3 = st.columns([1.35, 1.1, 4.15, 1.4, 1.2], vertical_alignment="center")
 with h1:
-    html("<span class='logo'>Thrive·Track</span>")
+    html("<div class='brand'><div class='lg'>🌿</div><div><b>Thrive·Track</b><small>Suivi CSSVD</small></div></div>")
 with h0:
     with st.container(key="coop"):
         coop = st.segmented_control("Coopérative", list(PAGES), default="ECAM", key="coop_sel",
@@ -2169,7 +2227,7 @@ k_prom = prod_rate(df["doc_promesse"] == 1)
 w1, w2 = st.columns([1.55, 1], vertical_alignment="bottom")
 with w1:
     html(f"""
-    <div class='welcome'>Bienvenue, <span style='color:#3e7a3c'>ECAM</span></div>
+    <div class='welcome'>Coopérative <span style='color:#2f5a36'>ECAM</span></div>
     <div class='kp-row'>
       <div class='kp'><span class='kp-lab'>Engagement du ménage</span>
         <div class='kp-pill kp-striped'><div class='kp-fill' style='width:{min(max(k_eng * 100, 0), 100):.1f}%'></div>
@@ -2199,21 +2257,27 @@ n_engages = n_prod_where(df["engagement"] == True)  # noqa: E712
 engages = set(df.loc[df["engagement"] == True, "prod_code"].dropna())  # noqa: E712
 n_refus = int(df.loc[(df["engagement"] == False) & ~df["prod_code"].isin(engages), "prod_code"].nunique())  # noqa: E712
 n_extra = n_fiches - n_prod
-compteurs = [
-    ("Producteurs enquêtés", n_prod, "#8fcf86",
-     f"{n_fiches} fiches saisies · <b style='color:#c0392b'>{n_extra} en double</b>" if n_extra > 0 else f"{n_fiches} fiches saisies"),
-    ("Refus d'engagement", n_refus, "#d9534f", ""),
-    ("Engagement du ménage", n_engages, GREEN, ""),
-    ("Inspection CSSVD", n_prod_where(df["doc_fiche"] == 1), "#1f6a24", ""),
-    ("Promesse de taille", n_prod_where(df["doc_promesse"] == 1), DARK, ""),
-]
-cards = "".join(
-    f"<div class='cnt' style='--c:{c}'><div class='n'>{v}<small>/{fmt(cible)}</small></div>"
-    f"<div class='lb'>{lab}</div><div class='tr'><div style='width:{min(v / cible * 100, 100) if cible else 0:.1f}%'></div></div>"
-    f"<div class='pc'>{(v / cible * 100 if cible else 0):.1f} % de l'objectif</div>"
-    f"{f'<div class=pc>{note}</div>' if note else ''}</div>"
-    for lab, v, c, note in compteurs)
-html(f"<div class='cnt-row'>{cards}</div>")
+n_fiche, n_promesse = n_prod_where(df["doc_fiche"] == 1), n_prod_where(df["doc_promesse"] == 1)
+n_signes = n_prod_where(df["cssvd"] == True)  # noqa: E712
+
+
+def _r(a, b):
+    return a / b * 100 if b else 0
+
+
+html(kpi_cards([
+    {"lab": "Producteurs enquêtés", "ico": "👥", "v": n_prod, "p": _r(n_prod, cible),
+     "sub": f"{_r(n_prod, cible):.0f} % de l'objectif · {n_fiches} fiches saisies"
+            + (f" · <b>{n_extra} en double</b>" if n_extra > 0 else "")},
+    {"lab": "Refus d'engagement", "ico": "✋", "v": n_refus, "p": _r(n_refus, n_prod), "cls": "red",
+     "sub": f"{_r(n_refus, n_prod):.0f} % des enquêtés"},
+    {"lab": "Engagement du ménage", "ico": "🤝", "v": n_engages, "p": _r(n_engages, n_prod),
+     "sub": f"{_r(n_engages, n_prod):.0f} % des enquêtés"},
+    {"lab": "Inspection CSSVD", "ico": "🔍", "v": n_fiche, "p": _r(n_fiche, n_prod),
+     "sub": f"{_r(n_fiche, n_prod):.0f} % · {n_signes} avec signes de swollen shoot"},
+    {"lab": "Promesse de taille", "ico": "✂️", "v": n_promesse, "p": _r(n_promesse, n_prod), "cls": "amber",
+     "sub": f"{_r(n_promesse, n_prod):.0f} % des enquêtés"},
+], cible))
 
 
 def doublons_table(d: pd.DataFrame) -> pd.DataFrame:
@@ -2287,7 +2351,7 @@ if page == "Tableau de bord":
             st.plotly_chart(ring_chart(r_eng, "Producteurs engagés"), config=CFG, width="stretch")
             html(f"""<div style='display:flex; gap:8px; justify-content:center'>
             <span class='cal-chip'>✓ Oui · {n_oui}</span><span class='cal-chip'>✕ Non · {n_non}</span>
-            <span class='cal-chip' style='background:#2c2c2c;color:#fff'>{n_prod} producteurs</span></div>""")
+            <span class='cal-chip' style='background:var(--hero);color:#fff;border-color:transparent'>{n_prod} producteurs</span></div>""")
 
         b1, b2 = st.columns([1, 2], gap="medium")
         with b1, st.container(key="card_accordion"):
