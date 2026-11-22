@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Thrive·Track — rapport</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+<style>
+:root{
+  --bg:#eef6ea; --bg2:#dcebd5; --card:rgba(255,255,255,.78); --card-solid:#fff; --ink:#18261a; --muted:#6a7b69;
+  --line:rgba(31,58,36,.09); --soft:#f3f8f0; --hero:#1d3622; --hero2:#2f5a36; --on-hero:#fff;
+  --g1:#2e7d32; --g2:#5aa55a; --g3:#9fd19c; --amber:#e3a33b; --red:#d0564f; --grey:#b9c4b6;
+  --shadow:0 1px 2px rgba(20,40,20,.04),0 8px 30px rgba(20,50,20,.07); --r:22px; --gap:18px;
+}
+:root[data-theme="dark"]{
+  --bg:#0f1a11; --bg2:#13261a; --card:rgba(28,42,30,.72); --card-solid:#1a291c; --ink:#e8f2e5; --muted:#93a891;
+  --line:rgba(220,240,215,.08); --soft:#1f3122; --hero:#234a2a; --hero2:#3b7a45;
+  --g1:#62b866; --g2:#86cc82; --g3:#3f7a43; --amber:#f0b54f; --red:#ee7a72; --grey:#4b5c49;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1a11; --bg2:#13261a; --card:rgba(28,42,30,.72); --card-solid:#1a291c; --ink:#e8f2e5; --muted:#93a891;
+  --line:rgba(220,240,215,.08); --soft:#1f3122; --hero:#234a2a; --hero2:#3b7a45;
+  --g1:#62b866; --g2:#86cc82; --g3:#3f7a43; --amber:#f0b54f; --red:#ee7a72; --grey:#4b5c49;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+}}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:"Outfit",-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg);min-height:100vh;
+  background-image:radial-gradient(900px 500px at 8% -10%,var(--bg2),transparent 60%),radial-gradient(700px 500px at 100% 0%,var(--bg2),transparent 55%);
+  background-attachment:fixed;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1380px;margin:0 auto;padding:22px 20px 40px}
+.serif{font-family:"DM Serif Display",Georgia,serif;font-weight:400}
+
+/* ---- barre du haut ---- */
+.top{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:18px}
+.brand{display:flex;align-items:center;gap:12px}
+.logo{width:44px;height:44px;border-radius:14px;background:linear-gradient(135deg,var(--hero2),var(--hero));display:grid;place-items:center;color:#fff;font-size:22px;box-shadow:var(--shadow)}
+.brand b{font-size:19px;letter-spacing:.2px}
+.brand small{display:block;color:var(--muted);font-size:12.5px}
+.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.seg{display:inline-flex;background:var(--card);backdrop-filter:blur(14px);border:1px solid var(--line);border-radius:999px;padding:4px;box-shadow:var(--shadow)}
+.seg button{border:0;background:transparent;color:var(--muted);padding:9px 20px;border-radius:999px;font:600 14px "Outfit",sans-serif;cursor:pointer;transition:.2s}
+.seg button.on{background:var(--hero);color:#fff;box-shadow:0 4px 14px rgba(29,54,34,.3)}
+.icon-btn{width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:var(--card);backdrop-filter:blur(14px);color:var(--ink);cursor:pointer;font-size:17px;box-shadow:var(--shadow);transition:.2s}
+.icon-btn:hover,.seg button:not(.on):hover{transform:translateY(-1px);color:var(--ink)}
+
+/* ---- titre + sections ---- */
+.hello{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin:6px 0 16px}
+.hello h1{font-size:clamp(30px,4.2vw,46px);line-height:1.05;letter-spacing:-.3px}
+.hello p{color:var(--muted);margin-top:6px;font-size:14px}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 10px;margin-bottom:8px;scrollbar-width:thin}
+.chip{flex:0 0 auto;border:1px solid var(--line);background:var(--card);backdrop-filter:blur(14px);color:var(--ink);padding:8px 14px;border-radius:999px;font:500 13px "Outfit",sans-serif;cursor:pointer;transition:.18s;white-space:nowrap}
+.chip em{font-style:normal;color:var(--muted);margin-left:6px;font-size:12px}
+.chip.on{background:var(--ink);color:var(--bg);border-color:transparent}.chip.on em{color:inherit;opacity:.7}
+.chip:hover:not(.on){border-color:var(--g2)}
+
+/* ---- cartes ---- */
+.card{background:var(--card);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid var(--line);border-radius:var(--r);padding:20px 22px;box-shadow:var(--shadow);min-width:0;animation:rise .5s ease both}
+.card h3{font-size:15px;font-weight:600;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.card h3 span{font-weight:400;color:var(--muted);font-size:12.5px}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+.kpis{display:grid;grid-template-columns:1.35fr repeat(4,1fr);gap:var(--gap);margin-bottom:var(--gap)}
+.kpi{position:relative;overflow:hidden}
+.kpi .lab{font-size:13px;color:var(--muted);font-weight:500;display:flex;align-items:center;gap:8px}
+.kpi .ico{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;background:var(--soft);font-size:15px}
+.kpi .row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px}
+.kpi .val{font-size:38px;font-weight:600;letter-spacing:-1px;line-height:1}
+.kpi .val small{font-size:15px;color:var(--muted);font-weight:400;letter-spacing:0;margin-left:3px}
+.kpi .sub{font-size:12.5px;color:var(--muted);margin-top:10px}
+.ring{width:62px;height:62px;flex:0 0 auto}
+.ring circle{fill:none;stroke-width:7}
+.ring .tr{stroke:var(--line)}
+.ring .pr{stroke:var(--g2);stroke-linecap:round;transform:rotate(-90deg);transform-origin:50% 50%;transition:stroke-dashoffset .9s cubic-bezier(.2,.8,.2,1)}
+.ring text{font:600 13px "Outfit",sans-serif;fill:var(--ink);text-anchor:middle;dominant-baseline:central}
+.kpi.red .pr{stroke:var(--red)} .kpi.amber .pr{stroke:var(--amber)}
+.kpi.hero{background:linear-gradient(145deg,var(--hero2),var(--hero));color:var(--on-hero);border-color:transparent}
+.kpi.hero .lab,.kpi.hero .sub,.kpi.hero .val small{color:rgba(255,255,255,.72)}
+.kpi.hero .ico{background:rgba(255,255,255,.14)}
+.kpi.hero .val{font-size:50px}
+.kpi.hero .ring{width:84px;height:84px}
+.kpi.hero .ring .tr{stroke:rgba(255,255,255,.16)} .kpi.hero .ring .pr{stroke:#c8f0c2} .kpi.hero .ring text{fill:#fff;font-size:15px}
+.kpi.hero::after{content:"";position:absolute;right:-60px;bottom:-80px;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.12),transparent 70%)}
+
+.grid{display:grid;grid-template-columns:1.45fr 1fr;gap:var(--gap);margin-bottom:var(--gap)}
+.grid.b{grid-template-columns:1fr 1.45fr}
+.chart{position:relative;height:300px}
+
+/* entonnoir */
+.fn{display:flex;flex-direction:column;gap:14px}
+.fn-row .t{display:flex;justify-content:space-between;font-size:13.5px;margin-bottom:6px}
+.fn-row .t b{font-weight:600}
+.fn-row .t i{font-style:normal;color:var(--muted);font-size:12px;margin-left:8px}
+.fn-tr{height:12px;border-radius:99px;background:var(--soft);overflow:hidden}
+.fn-tr div{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--g2),var(--g1));transition:width .9s cubic-bezier(.2,.8,.2,1)}
+
+.alert{display:flex;gap:12px;align-items:flex-start;padding:14px 18px;border-radius:16px;margin-bottom:var(--gap);font-size:13.5px;
+  background:color-mix(in srgb,var(--amber) 14%,var(--card-solid));border:1px solid color-mix(in srgb,var(--amber) 35%,transparent)}
+.alert .ai{font-size:18px;line-height:1}
+
+/* tableaux */
+.stbl{width:100%;border-collapse:collapse;font-size:13px}
+.stbl th{text-align:left;font-weight:500;color:var(--muted);font-size:12px;padding:0 8px 10px;white-space:nowrap}
+.stbl td{padding:9px 8px;border-top:1px solid var(--line);white-space:nowrap}
+.stbl tr.tot td{font-weight:600}
+.mini{display:flex;align-items:center;gap:8px}
+.mini .b{width:64px;height:7px;border-radius:9px;background:var(--soft);overflow:hidden}
+.mini .b i{display:block;height:100%;background:var(--g2);border-radius:9px}
+.mini.lo .b i{background:var(--amber)} .mini.zero .b i{background:var(--red)}
+
+.list-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.list-head h3{margin:0}
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.search{display:flex;align-items:center;gap:8px;background:var(--soft);border:1px solid var(--line);border-radius:999px;padding:8px 14px;min-width:240px}
+.search input{border:0;background:transparent;outline:0;color:var(--ink);font:400 13.5px "Outfit",sans-serif;width:100%}
+.btn{border:1px solid var(--line);background:var(--card-solid);color:var(--ink);padding:9px 14px;border-radius:999px;font:500 13px "Outfit",sans-serif;cursor:pointer;transition:.18s}
+.btn:hover{border-color:var(--g2)}
+.btn.primary{background:var(--hero);color:#fff;border-color:transparent}
+.qf{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.qf .chip{padding:6px 12px;font-size:12.5px}
+.tbl{overflow:auto;border-radius:14px;border:1px solid var(--line)}
+.data{width:100%;border-collapse:collapse;font-size:13px}
+.data th{position:sticky;top:0;background:var(--soft);text-align:left;padding:11px 12px;font-weight:500;color:var(--muted);font-size:12px;cursor:pointer;white-space:nowrap;user-select:none}
+.data th:hover{color:var(--ink)}
+.data td{padding:10px 12px;border-top:1px solid var(--line);white-space:nowrap}
+.data tbody tr{transition:background .12s}
+.data tbody tr:hover{background:color-mix(in srgb,var(--g2) 7%,transparent)}
+.code{font-weight:600;font-variant-numeric:tabular-nums}
+.pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:500}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.p-y{color:var(--g1);background:color-mix(in srgb,var(--g1) 12%,transparent)}
+.p-n{color:var(--red);background:color-mix(in srgb,var(--red) 12%,transparent)}
+.p-u{color:var(--muted);background:var(--soft)}
+.p-w{color:#a46a00;background:color-mix(in srgb,var(--amber) 18%,transparent)}
+:root[data-theme="dark"] .p-w{color:var(--amber)}
+.pager{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:13px;color:var(--muted);gap:10px;flex-wrap:wrap}
+.pager .btn:disabled{opacity:.4;cursor:default}
+.empty{padding:40px 10px;text-align:center;color:var(--muted)}
+.empty b{display:block;font-size:28px;margin-bottom:6px}
+footer{margin-top:24px;color:var(--muted);font-size:12.5px;text-align:center;line-height:1.6}
+.demo{display:inline-block;background:var(--amber);color:#3a2600;font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle}
+
+@media (max-width:1150px){.kpis{grid-template-columns:repeat(3,1fr)}.kpi.hero{grid-column:span 3}.grid,.grid.b{grid-template-columns:1fr}}
+@media (max-width:640px){
+  .wrap{padding:16px 14px 30px}.kpis{grid-template-columns:1fr 1fr;gap:12px}.kpi.hero{grid-column:1/-1}
+  .kpi .val{font-size:30px}.kpi.hero .val{font-size:42px}.ring{width:50px;height:50px}.kpi.hero .ring{width:72px;height:72px}
+  .card{padding:16px}.chart{height:250px}.search{min-width:0;flex:1}.tools{width:100%}.seg button{padding:8px 16px}
+}
+@media print{
+  body{background:#fff}.actions,.chips,.tools,.qf,.pager{display:none!important}
+  .card{box-shadow:none;break-inside:avoid;backdrop-filter:none;background:#fff}.tbl{overflow:visible}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand"><div class="logo">🌿</div><div><b>Thrive·Track</b><small>Suivi CSSVD · rapport hors ligne</small></div></div>
+    <div class="actions">
+      <div class="seg" id="coop"></div>
+      <button class="icon-btn" id="theme" title="Mode clair / sombre">◐</button>
+      <button class="icon-btn" onclick="window.print()" title="Imprimer / PDF">⎙</button>
+    </div>
+  </div>
+
+  <div class="hello">
+    <div><h1 class="serif" id="title"></h1><p id="subtitle"></p></div>
+  </div>
+  <div class="chips" id="chips"></div>
+
+  <section class="kpis" id="kpis"></section>
+  <div id="alert"></div>
+
+  <section class="grid">
+    <div class="card"><h3 id="t1"></h3><div class="chart"><canvas id="c1"></canvas></div></div>
+    <div class="card"><h3 id="t2"></h3><div class="chart"><canvas id="c2"></canvas></div></div>
+  </section>
+  <section class="grid b">
+    <div class="card"><h3>Parcours <span>conversion d'une étape à l'autre</span></h3><div class="fn" id="funnel"></div></div>
+    <div class="card"><h3 id="t3"></h3><div class="chart"><canvas id="c3"></canvas></div></div>
+  </section>
+  <section class="card" style="margin-bottom:var(--gap)">
+    <h3>Avancement par section <span>part des producteurs de la section</span></h3>
+    <div style="overflow-x:auto" id="secTbl"></div>
+  </section>
+
+  <section class="card">
+    <div class="list-head">
+      <h3>Producteurs <span id="cnt"></span></h3>
+      <div class="tools">
+        <label class="search">🔎<input id="q" type="search" placeholder="Code, section, coach…"></label>
+        <button class="btn" id="csv">⬇ CSV</button>
+      </div>
+    </div>
+    <div class="qf" id="qf"></div>
+    <div class="tbl" id="tbl"></div>
+    <div class="pager" id="pager"></div>
+  </section>
+
+  <footer>
+    Généré le <span id="gen"></span> à partir des données publiées.<br>
+    Aucun nom, numéro de téléphone ni position GPS n'est inclus — uniquement les codes producteurs.
+  </footer>
+</div>
+
+<script>
+const DATA = __DATA__;
+const OBJ = DATA.objectif || 1000;
+const PAGE = 25;
+const S = {coop: DATA.ecam.length || !DATA.upas.length ? 'ecam' : 'upas', sec: 'all', q: '', qf: 'all', sort: null, dir: 1, page: 0};
+const charts = {};
+const $ = id => document.getElementById(id);
+const fr = n => Number(n).toLocaleString('fr-FR');
+const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+const uniq = a => [...new Set(a)].sort((x, y) => String(x).localeCompare(String(y), 'fr'));
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fmtD = d => d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const pill = (v, y = 'Oui', n = 'Non') => v === true || v === 1 ? `<span class="pill p-y">${y}</span>`
+  : v === false || v === 0 ? `<span class="pill p-n">${n}</span>` : `<span class="pill p-u">—</span>`;
+
+/* ---------- configuration par coopérative ---------- */
+const COOPS = {
+  ecam: {
+    name: 'ECAM', unit: 'producteurs enquêtés',
+    kpis: r => {
+      const n = r.length, eng = cnt(r, x => x.eng === true), ref = cnt(r, x => x.eng === false);
+      const fi = cnt(r, x => x.fiche), pr = cnt(r, x => x.prom), cs = cnt(r, x => x.cssvd === true);
+      return [
+        {lab: 'Producteurs enquêtés', ico: '👥', v: n, p: pct(n, OBJ), sub: `${pct(n, OBJ)} % de l'objectif · ${fr(OBJ - n > 0 ? OBJ - n : 0)} restants`, hero: true},
+        {lab: "Refus d'engagement", ico: '✋', v: ref, p: pct(ref, n), sub: `${pct(ref, n)} % des enquêtés`, cls: 'red'},
+        {lab: 'Engagement du ménage', ico: '🤝', v: eng, p: pct(eng, n), sub: `${pct(eng, n)} % des enquêtés`},
+        {lab: 'Inspection CSSVD', ico: '🔍', v: fi, p: pct(fi, n), sub: `${cs} avec signes de swollen shoot`},
+        {lab: 'Promesse de taille', ico: '✂️', v: pr, p: pct(pr, n), sub: `${pct(pr, n)} % des enquêtés`, cls: 'amber'},
+      ];
+    },
+    funnel: r => [['Enquêtés', r.length], ['Engagés', cnt(r, x => x.eng === true)], ['Fiche CSSVD', cnt(r, x => x.fiche)], ['Promesse de taille', cnt(r, x => x.prom)]],
+    alert: () => DATA.ecam_dup ? `<b>${DATA.ecam_dup} fiche(s) en double</b> sur ${DATA.ecam_fiches} saisies : elles sont regroupées, les indicateurs sont calculés une seule fois par code producteur. Le détail est dans l'application.` : '',
+    bars: [['Engagés', '--g1', x => x.eng === true], ['Refus', '--red', x => x.eng === false], ['Fiche CSSVD', '--g2', x => x.fiche], ['Promesse', '--amber', x => x.prom]],
+    sec: [['Engagés', x => x.eng === true], ['Fiche CSSVD', x => x.fiche], ['Promesse', x => x.prom], ['Signes CSSVD', x => x.cssvd === true]],
+    qf: [['all', 'Tous', () => true], ['ref', 'Refus', x => x.eng === false], ['cs', 'Signes CSSVD', x => x.cssvd === true],
+         ['nofi', 'Sans fiche CSSVD', x => !x.fiche], ['nopr', 'Sans promesse', x => !x.prom]],
+    cols: [['code', 'Code', x => `<span class="code">${esc(x.code)}</span>`], ['section', 'Section'], ['coach', 'Coach'], ['genre', 'Genre'],
+           ['eng', 'Engagement', x => pill(x.eng)], ['fiche', 'Fiche CSSVD', x => pill(x.fiche)], ['prom', 'Promesse', x => pill(x.prom)],
+           ['cssvd', 'Signes CSSVD', x => x.cssvd === true ? '<span class="pill p-w">Oui</span>' : pill(x.cssvd === false ? true : null, 'Non')],
+           ['nsym', 'Symptômes'], ['sup', 'Superficie (ha)', x => x.sup ?? ''], ['date', 'Dernière fiche', x => fmtD(x.date)]],
+  },
+  upas: {
+    name: 'UPAS', unit: 'producteurs suivis',
+    kpis: r => {
+      const n = r.length, e = cnt(r, x => x.eng), i = cnt(r, x => x.insp), p = cnt(r, x => x.prom);
+      const c = cnt(r, x => x.eng && x.insp && x.prom), bad = cnt(r, x => x.prom && !x.insp);
+      return [
+        {lab: 'Producteurs suivis', ico: '👥', v: n, p: pct(n, OBJ), sub: `${pct(n, OBJ)} % de l'objectif · ${fr(OBJ - n > 0 ? OBJ - n : 0)} restants`, hero: true},
+        {lab: 'Engagement du ménage', ico: '🤝', v: e, p: pct(e, n), sub: `${pct(e, n)} % des suivis`},
+        {lab: 'Inspection CSSVD', ico: '🔍', v: i, p: pct(i, e), sub: `${pct(i, e)} % des engagés`},
+        {lab: 'Promesse de taille', ico: '✂️', v: p, p: pct(p, i), sub: `${pct(p, i)} % des inspectés${bad ? ` · ${bad} sans inspection` : ''}`, cls: 'amber'},
+        {lab: 'Parcours complet', ico: '🏁', v: c, p: pct(c, n), sub: `${pct(c, n)} % des suivis`},
+      ];
+    },
+    funnel: r => [['Engagés', cnt(r, x => x.eng)], ['Inspectés', cnt(r, x => x.eng && x.insp)], ['Promesse de taille', cnt(r, x => x.eng && x.insp && x.prom)]],
+    alert: () => DATA.upas_anomalies ? `<b>${DATA.upas_anomalies} anomalie(s)</b> détectée(s) entre les fichiers engagements, inspections et promesses (doublons, codes incohérents, promesse avant inspection…). Le détail est dans l'application.` : '',
+    bars: [['Engagés', '--g1', x => x.eng], ['Inspectés', '--g2', x => x.insp], ['Promesses', '--amber', x => x.prom]],
+    sec: [['Engagés', x => x.eng], ['Inspectés', x => x.insp], ['Promesses', x => x.prom], ['Complets', x => x.eng && x.insp && x.prom]],
+    qf: [['all', 'Tous', () => true], ['ok', 'Parcours complet', x => x.eng && x.insp && x.prom],
+         ['ins', 'Inspection à faire', x => x.eng && !x.insp], ['pro', 'Promesse à faire', x => x.insp && !x.prom],
+         ['bad', 'Promesse sans inspection', x => x.prom && !x.insp]],
+    cols: [['code', 'Code', x => `<span class="code">${esc(x.code)}</span>`], ['section', 'Section'], ['localite', 'Localité'],
+           ['eng', 'Engagé', x => pill(x.eng)], ['insp', 'Inspecté', x => pill(x.insp)], ['prom', 'Promesse', x => pill(x.prom)],
+           ['etape', 'Étape', x => x.etape.startsWith('⚠') ? `<span class="pill p-w">${esc(x.etape)}</span>` : esc(x.etape)],
+           ['signes', 'Signes CSSVD', x => x.signes === true ? '<span class="pill p-w">Oui</span>' : pill(x.signes === false ? true : null, 'Non')],
+           ['sup', 'Superficie (ha)', x => x.sup ?? ''], ['date', 'Engagé le', x => fmtD(x.date)]],
+  },
+};
+const cnt = (r, f) => r.filter(f).length;
+DATA.ecam.forEach(x => x.nsym = x.sym.length);
+
+/* ---------- graphiques ---------- */
+function setChartTheme() {
+  Chart.defaults.font.family = '"Outfit", sans-serif';
+  Chart.defaults.color = css('--muted');
+  Chart.defaults.borderColor = css('--line');
+  Chart.defaults.plugins.legend.labels.usePointStyle = true;
+  Chart.defaults.plugins.legend.labels.boxWidth = 8;
+  Chart.defaults.plugins.tooltip.backgroundColor = css('--hero');
+  Chart.defaults.plugins.tooltip.padding = 10;
+  Chart.defaults.plugins.tooltip.cornerRadius = 10;
+  Chart.defaults.animation.duration = 500;
+}
+function chart(id, cfg) { if (charts[id]) charts[id].destroy(); charts[id] = new Chart($(id), cfg); }
+const axes = (extra = {}) => ({x: {grid: {display: false}, ...(extra.x || {})}, y: {beginAtZero: true, ticks: {precision: 0}, grid: {color: css('--line')}, border: {display: false}, ...(extra.y || {})}, ...(extra.more || {})});
+function timeline(id, pts, label) {
+  const days = uniq(pts.map(p => p.d)); const v = days.map(d => pts.filter(p => p.d === d).reduce((a, p) => a + p.n, 0));
+  let c = 0; const cum = v.map(x => c += x);
+  chart(id, {data: {labels: days.map(d => d.slice(8, 10) + '/' + d.slice(5, 7)), datasets: [
+    {type: 'bar', label, data: v, backgroundColor: css('--g3'), borderRadius: 6, yAxisID: 'y', maxBarThickness: 46},
+    {type: 'line', label: 'Cumul', data: cum, borderColor: css('--g1'), backgroundColor: css('--g1'), cubicInterpolationMode: 'monotone', pointRadius: 3, borderWidth: 2.5, yAxisID: 'y1'}]},
+    options: {responsive: true, maintainAspectRatio: false, interaction: {mode: 'index', intersect: false}, plugins: {legend: {position: 'top', align: 'end'}},
+      scales: axes({more: {y1: {position: 'right', beginAtZero: true, ticks: {precision: 0}, grid: {display: false}, border: {display: false}}}})}});
+}
+
+/* ---------- rendu ---------- */
+const rows = () => DATA[S.coop].filter(x => S.sec === 'all' || x.section === S.sec);
+
+function ring(p, big) {
+  const R = 26, Cc = 2 * Math.PI * R, off = Cc * (1 - Math.min(p, 100) / 100);
+  return `<svg class="ring" viewBox="0 0 64 64"><circle class="tr" cx="32" cy="32" r="${R}"/><circle class="pr" cx="32" cy="32" r="${R}" stroke-dasharray="${Cc}" stroke-dashoffset="${Cc}" data-off="${off}"/><text x="32" y="32">${p}%</text></svg>`;
+}
+function countUp(el, to) {
+  const t0 = performance.now(), d = 650;
+  const step = t => { const k = Math.min(1, (t - t0) / d); el.textContent = fr(Math.round(to * (1 - Math.pow(1 - k, 3)))); if (k < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+
+function renderHeader() {
+  const cfg = COOPS[S.coop];
+  $('coop').innerHTML = Object.entries(COOPS).map(([k, c]) => `<button data-c="${k}" class="${k === S.coop ? 'on' : ''}">${c.name}</button>`).join('');
+  $('coop').querySelectorAll('button').forEach(b => b.onclick = () => { S.coop = b.dataset.c; S.sec = 'all'; S.qf = 'all'; S.q = ''; S.sort = null; S.page = 0; $('q').value = ''; renderAll(); });
+  const all = DATA[S.coop];
+  const secs = uniq(all.map(x => x.section));
+  $('chips').innerHTML = `<button class="chip ${S.sec === 'all' ? 'on' : ''}" data-s="all">Toutes les sections<em>${all.length}</em></button>` +
+    secs.map(s => `<button class="chip ${S.sec === s ? 'on' : ''}" data-s="${esc(s)}">${esc(s)}<em>${cnt(all, x => x.section === s)}</em></button>`).join('');
+  $('chips').querySelectorAll('.chip').forEach(b => b.onclick = () => { S.sec = b.dataset.s; S.page = 0; renderAll(); });
+  const demo = S.coop === 'ecam' && DATA.ecam_demo ? '<span class="demo">démonstration</span>' : '';
+  $('title').innerHTML = `Coopérative ${cfg.name}${demo}`;
+  $('subtitle').textContent = `${S.sec === 'all' ? 'Toutes les sections' : 'Section ' + S.sec} · données au ${DATA['asof_' + S.coop] || '—'} · objectif ${fr(OBJ)} producteurs`;
+}
+
+function renderKpis(r) {
+  $('kpis').innerHTML = COOPS[S.coop].kpis(r).map(k => `
+    <div class="card kpi ${k.hero ? 'hero' : ''} ${k.cls || ''}">
+      <div class="lab"><span class="ico">${k.ico}</span>${k.lab}</div>
+      <div class="row"><div class="val"><span data-v="${k.v}">0</span>${k.hero ? `<small>/ ${fr(OBJ)}</small>` : ''}</div>${ring(k.p)}</div>
+      <div class="sub">${k.sub}</div>
+    </div>`).join('');
+  $('kpis').querySelectorAll('[data-v]').forEach(el => countUp(el, +el.dataset.v));
+  requestAnimationFrame(() => requestAnimationFrame(() => $('kpis').querySelectorAll('.pr').forEach(c => c.style.strokeDashoffset = c.dataset.off)));
+  const a = COOPS[S.coop].alert();
+  $('alert').innerHTML = a ? `<div class="alert"><span class="ai">⚠️</span><div>${a}</div></div>` : '';
+}
+
+function renderFunnel(r) {
+  const st = COOPS[S.coop].funnel(r), top = Math.max(st[0][1], 1);
+  $('funnel').innerHTML = st.map(([l, v], i) => `<div class="fn-row"><div class="t"><span>${l}${i ? `<i>${pct(v, st[i - 1][1])} % de l'étape précédente</i>` : ''}</span><b>${fr(v)}</b></div>
+    <div class="fn-tr"><div style="width:0" data-w="${Math.max(v / top * 100, v ? 2 : 0)}"></div></div></div>`).join('');
+  requestAnimationFrame(() => requestAnimationFrame(() => $('funnel').querySelectorAll('[data-w]').forEach(d => d.style.width = d.dataset.w + '%')));
+}
+
+function renderCharts(r) {
+  const cfg = COOPS[S.coop], secs = uniq(r.map(x => x.section));
+  $('t1').innerHTML = `Par section <span>${cfg.bars.map(b => b[0].toLowerCase()).join(' · ')}</span>`;
+  chart('c1', {type: 'bar', data: {labels: secs, datasets: cfg.bars.map(([l, c, f]) => ({label: l, data: secs.map(s => cnt(r, x => x.section === s && f(x))), backgroundColor: css(c), borderRadius: 6, maxBarThickness: 22}))},
+    options: {responsive: true, maintainAspectRatio: false, interaction: {mode: 'index', intersect: false}, plugins: {legend: {position: 'top', align: 'end'}}, scales: axes({x: {ticks: {autoSkip: false, maxRotation: 40}}})}});
+  if (S.coop === 'ecam') {
+    const sym = Object.entries(DATA.sym_names).map(([k, v]) => [v, cnt(r, x => x.sym.includes(k))]).sort((a, b) => b[1] - a[1]);
+    $('t2').innerHTML = `Symptômes observés <span>producteurs concernés · ${cnt(r, x => x.cssvd === true)} avec signes</span>`;
+    chart('c2', {type: 'bar', data: {labels: sym.map(s => s[0]), datasets: [{label: 'Producteurs', data: sym.map(s => s[1]),
+      backgroundColor: sym.map((_, i) => i < 2 ? css('--g1') : css('--g2')), borderRadius: 8, maxBarThickness: 26}]},
+      options: {indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: {legend: {display: false}},
+        scales: {x: {beginAtZero: true, ticks: {precision: 0}, grid: {color: css('--line')}, border: {display: false}}, y: {grid: {display: false}, border: {display: false}}}}});
+    $('t3').innerHTML = 'Activité de collecte <span>fiches par jour et cumul</span>';
+    timeline('c3', DATA.ecam_days.filter(d => S.sec === 'all' || d.section === S.sec), 'Fiches du jour');
+  } else {
+    const steps = [['✅ Parcours complet', '--g1'], ['🔍 Inspecté — promesse à faire', '--g2'], ['📝 Engagé — inspection à faire', '--g3'], ['⚠ Promesse sans inspection', '--amber'], ['Autre', '--grey']];
+    const v = steps.map(s => cnt(r, x => x.etape === s[0]));
+    $('t2').innerHTML = 'Où en sont les producteurs ? <span>étape du parcours</span>';
+    chart('c2', {type: 'doughnut', data: {labels: steps.map(s => s[0]), datasets: [{data: v, backgroundColor: steps.map(s => css(s[1])), borderColor: css('--card-solid'), borderWidth: 3, hoverOffset: 6}]},
+      options: {responsive: true, maintainAspectRatio: false, cutout: '68%', plugins: {legend: {position: 'bottom'},
+        tooltip: {callbacks: {label: c => ` ${c.label} : ${c.parsed} (${pct(c.parsed, r.length)} %)`}}}},
+      plugins: [{id: 'center', afterDraw(ch) { const {ctx, chartArea: a} = ch; const x = (a.left + a.right) / 2, y = (a.top + a.bottom) / 2;
+        ctx.save(); ctx.textAlign = 'center'; ctx.fillStyle = css('--ink'); ctx.font = '600 28px Outfit, sans-serif'; ctx.fillText(pct(v[0], r.length) + ' %', x, y + 2);
+        ctx.fillStyle = css('--muted'); ctx.font = '400 12px Outfit, sans-serif'; ctx.fillText('parcours complet', x, y + 22); ctx.restore(); }}]});
+    $('t3').innerHTML = 'Engagements dans le temps <span>par jour et cumul</span>';
+    timeline('c3', r.filter(x => x.date).map(x => ({d: x.date, n: 1})), 'Engagements du jour');
+  }
+}
+
+function renderSections(r) {
+  const cfg = COOPS[S.coop], secs = uniq(r.map(x => x.section));
+  const cell = (g, f) => { const p = pct(cnt(g, f), g.length); return `<td><div class="mini ${p === 0 ? 'zero' : p < 50 ? 'lo' : ''}"><div class="b"><i style="width:${p}%"></i></div>${p} %</div></td>`; };
+  const line = (name, g, tot) => `<tr class="${tot ? 'tot' : ''}"><td>${esc(name)}</td><td>${g.length}</td>${cfg.sec.map(c => cell(g, c[1])).join('')}</tr>`;
+  $('secTbl').innerHTML = `<table class="stbl"><thead><tr><th>Section</th><th>Producteurs</th>${cfg.sec.map(c => `<th>${c[0]}</th>`).join('')}</tr></thead><tbody>
+    ${secs.map(s => line(s, r.filter(x => x.section === s))).join('')}${secs.length > 1 ? line('Total', r, true) : ''}</tbody></table>`;
+}
+
+function filtered(r) {
+  const cfg = COOPS[S.coop], f = (cfg.qf.find(q => q[0] === S.qf) || cfg.qf[0])[2], q = S.q.toLowerCase();
+  let d = r.filter(f);
+  if (q) d = d.filter(x => cfg.cols.some(c => String(x[c[0]] ?? '').toLowerCase().includes(q)));
+  if (S.sort) { const k = S.sort; d = [...d].sort((a, b) => { const A = a[k] ?? '', B = b[k] ?? ''; return (A < B ? -1 : A > B ? 1 : 0) * S.dir; }); }
+  return d;
+}
+
+function renderTable(r) {
+  const cfg = COOPS[S.coop];
+  $('qf').innerHTML = cfg.qf.map(([k, l, f]) => `<button class="chip ${S.qf === k ? 'on' : ''}" data-k="${k}">${l}<em>${cnt(r, f)}</em></button>`).join('');
+  $('qf').querySelectorAll('.chip').forEach(b => b.onclick = () => { S.qf = b.dataset.k; S.page = 0; renderTable(rows()); });
+  const d = filtered(r), pages = Math.max(1, Math.ceil(d.length / PAGE));
+  S.page = Math.min(S.page, pages - 1);
+  const slice = d.slice(S.page * PAGE, S.page * PAGE + PAGE);
+  $('cnt').textContent = `${fr(d.length)} sur ${fr(r.length)}`;
+  if (!d.length) { $('tbl').innerHTML = '<div class="empty"><b>🌱</b>Aucun producteur ne correspond à ces critères.</div>'; $('pager').innerHTML = ''; return; }
+  $('tbl').innerHTML = `<table class="data"><thead><tr>${cfg.cols.map(c => `<th data-k="${c[0]}">${c[1]}${S.sort === c[0] ? (S.dir > 0 ? ' ↑' : ' ↓') : ''}</th>`).join('')}</tr></thead>
+    <tbody>${slice.map(x => `<tr>${cfg.cols.map(c => `<td>${c[2] ? c[2](x) : esc(x[c[0]])}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  $('tbl').querySelectorAll('th').forEach(th => th.onclick = () => { const k = th.dataset.k; S.dir = S.sort === k ? -S.dir : 1; S.sort = k; renderTable(rows()); });
+  $('pager').innerHTML = `<span>${S.page * PAGE + 1}–${Math.min(d.length, (S.page + 1) * PAGE)} sur ${fr(d.length)}</span>
+    <span><button class="btn" id="prev" ${S.page ? '' : 'disabled'}>← Précédent</button> <button class="btn" id="next" ${S.page < pages - 1 ? '' : 'disabled'}>Suivant →</button></span>`;
+  $('prev').onclick = () => { S.page--; renderTable(rows()); };
+  $('next').onclick = () => { S.page++; renderTable(rows()); };
+}
+
+function exportCsv() {
+  const cfg = COOPS[S.coop], d = filtered(rows());
+  const val = (x, k) => { const v = x[k]; return v === true ? 'Oui' : v === false ? 'Non' : v ?? ''; };
+  const lines = [cfg.cols.map(c => c[1]).join(';'), ...d.map(x => cfg.cols.map(c => `"${String(val(x, c[0])).replace(/"/g, '""')}"`).join(';'))];
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\n')], {type: 'text/csv'}));
+  a.download = `producteurs_${cfg.name}${S.sec === 'all' ? '' : '_' + S.sec}.csv`; a.click();
+}
+
+function renderAll() {
+  const r = rows();
+  renderHeader(); renderKpis(r); renderFunnel(r); renderCharts(r); renderSections(r); renderTable(r);
+}
+
+/* ---------- thème ---------- */
+const root = document.documentElement;
+try { const t = localStorage.getItem('tt-theme'); if (t) root.dataset.theme = t; } catch (e) {}
+$('theme').onclick = () => {
+  const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  root.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('tt-theme', root.dataset.theme); } catch (e) {}
+  setChartTheme(); renderAll();
+};
+$('q').oninput = e => { S.q = e.target.value; S.page = 0; renderTable(rows()); };
+$('csv').onclick = exportCsv;
+$('gen').textContent = DATA.generated;
+
+if (window.Chart) { setChartTheme(); renderAll(); }
+else { window.Chart = class { constructor() {} destroy() {} }; window.Chart.defaults = {font: {}, plugins: {legend: {labels: {}}, tooltip: {}}, animation: {}};
+  renderAll(); document.querySelectorAll('.chart').forEach(c => c.innerHTML = '<div class="empty"><b>📶</b>Graphique indisponible hors connexion — les chiffres et tableaux restent à jour.</div>'); }
+</script>
+</body>
+</html>

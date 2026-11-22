@@ -210,6 +210,9 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: #222; }
 .st-key-nav button[aria-checked="true"], .st-key-nav button[kind="segmented_controlActive"] { background:#2c2c2c !important; color:#fff !important; }
 .st-key-nav button[aria-checked="true"] p, .st-key-nav button[kind="segmented_controlActive"] p { color:#fff !important; }
 [data-testid="stPopover"] button { border-radius:999px !important; background:rgba(255,255,255,.7) !important; border:none !important; }
+.st-key-offline_dl button { border-radius:999px !important; border:none !important; color:#fff !important; font-weight:600 !important;
+  background:linear-gradient(135deg,#3b7a45,#1d3622) !important; box-shadow:0 6px 18px rgba(29,54,34,.28); transition:transform .15s; }
+.st-key-offline_dl button:hover { transform:translateY(-1px); }
 .st-key-card_table [data-testid="stDataFrame"] { border-radius:16px; overflow:hidden; }
 .stats .lab { margin-left: 40px; }
 
@@ -1958,6 +1961,116 @@ def render_upas(page: str, pop) -> None:
                                        file_name=f"{slot}.csv", mime="text/csv", key=f"dl_{slot}")
 
 
+def _tri(s: pd.Series):
+    """Oui si au moins une fiche dit Oui, Non si seulement des Non, vide sinon."""
+    if (s == True).any():  # noqa: E712
+        return True
+    if (s == False).any():  # noqa: E712
+        return False
+    return np.nan
+
+
+def consolidate(d: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    """Fusionne les fiches en double : une ligne par clé (producteur, ou producteur + parcelle)."""
+    agg = {}
+    for c in d.columns:
+        if c in keys:
+            continue
+        if c in ("engagement", "cssvd"):
+            agg[c] = _tri
+        elif c.startswith(("doc_", "sym_")):
+            agg[c] = "max"
+        elif c == "date":
+            agg[c] = "max"
+        else:
+            agg[c] = "last"  # dernière valeur renseignée
+    out = d.sort_values("date").groupby(keys, dropna=False, sort=False).agg(agg).reset_index()
+    out["doc_aucun"] = ((out["doc_fiche"] != 1) & (out["doc_promesse"] != 1)).astype(int)
+    for c in ("engagement", "cssvd"):
+        out[c] = out[c].astype("object")
+    return out
+
+
+
+# ----------------------------------------------------------------------------
+# Rapport hors ligne : un fichier HTML autonome (ECAM + UPAS) à partager par WhatsApp / e-mail.
+# Uniquement des codes producteurs : ni nom, ni téléphone, ni position GPS.
+# ----------------------------------------------------------------------------
+def _yn(v):
+    return None if pd.isna(v) else bool(v)
+
+
+def _day(v):
+    return v.strftime("%Y-%m-%d") if pd.notna(v) else None
+
+
+def report_version() -> str:
+    """Change dès que des données ECAM ou UPAS sont republiées (sert de clé de cache)."""
+    parts = [current_version(tuple(SLOTS))]
+    for s in SLOTS:
+        parts += [f"{p}:{os.path.getmtime(p)}" for p in local_files(s)[:1]]
+    return "|".join(parts)
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
+def offline_report_html(version: str, objectif: int = 1000) -> bytes:
+    import json
+
+    tz = "Africa/Abidjan"
+    df, _, source, _ = load()
+    parc = consolidate(df, ["prod_code", "plantation"])
+    pp = consolidate(parc[parc["prod_code"].notna()], ["prod_code"])
+    ecam = [{"code": r.prod_code, "section": r.section if pd.notna(r.section) else "Sans section",
+             "coach": r.agent_id if pd.notna(r.agent_id) else "",
+             "genre": str(r.genre)[:1].upper() if pd.notna(r.genre) else "",
+             "eng": _yn(r.engagement), "cssvd": _yn(r.cssvd),
+             "fiche": int(r.doc_fiche == 1), "prom": int(r.doc_promesse == 1),
+             "sup": None if pd.isna(r.sup_tot) else round(float(r.sup_tot), 2),
+             "sym": [k for k in SYMPTOMES if getattr(r, k) == 1], "date": _day(r.date)} for r in pp.itertuples()]
+    fiches = df.dropna(subset=["date"])
+    days = (fiches.assign(d=fiches["date"].dt.strftime("%Y-%m-%d"), section=fiches["section"].fillna("Sans section"))
+            .groupby(["d", "section"]).size().rename("n").reset_index().to_dict("records"))
+
+    raws = {s: load_slot(s)[0] for s in COOP_SLOTS["UPAS"]}
+    eng = upas_eng(raws["upas_eng"] if raws["upas_eng"] is not None else pd.DataFrame())
+    insp = upas_insp(raws["upas_insp"] if raws["upas_insp"] is not None else pd.DataFrame())
+    prom = upas_prom(raws["upas_prom"] if raws["upas_prom"] is not None else pd.DataFrame())
+    n_anom = len(upas_quality(eng, insp, prom)) if len(eng) or len(insp) or len(prom) else 0
+    eng, insp, prom = dedupe(eng), dedupe(insp), dedupe(prom)
+    suivi = upas_suivi(eng, insp, prom)
+    upas = [] if suivi.empty else [
+        {"code": r.code, "section": r.section if pd.notna(r.section) else "Sans section",
+         "localite": r.localite if pd.notna(r.localite) else "",
+         "eng": bool(r.engage), "insp": bool(r.inspecte), "prom": bool(r.promesse), "etape": r.etape,
+         "sup": None if pd.isna(r.superficie) else round(float(r.superficie), 2),
+         "signes": _yn(r.signes), "date": _day(r.date_eng)} for r in suivi.itertuples()]
+    upas_dates = pd.concat([eng["date"], insp["date"], prom["date"]]).dropna()
+
+    payload = {
+        "ecam": ecam, "ecam_days": days, "ecam_fiches": int(len(df)), "ecam_dup": int(len(df) - len(pp)),
+        "ecam_demo": source == "Données de démonstration",
+        "upas": upas, "upas_anomalies": int(n_anom), "objectif": int(objectif or 1000),
+        "sym_names": {k: v[0] for k, v in SYMPTOMES.items()},
+        "asof_ecam": df["date"].max().strftime("%d/%m/%Y") if df["date"].notna().any() else "",
+        "asof_upas": upas_dates.max().strftime("%d/%m/%Y") if len(upas_dates) else "",
+        "generated": pd.Timestamp.now(tz=tz).strftime("%d/%m/%Y à %H:%M"),
+    }
+    data = json.dumps(payload, ensure_ascii=False, default=str).replace("</", "<\\/")
+    with open(os.path.join(HERE, "rapport_template.html"), encoding="utf-8") as f:
+        return f.read().replace("__DATA__", data).encode("utf-8")
+
+
+def offline_button() -> None:
+    """Bouton « Rapport hors ligne » : le fichier n'est généré qu'au clic."""
+    version = report_version()
+    obj = int(st.session_state.get("upas_obj", 1000) or 1000)
+    st.download_button("📥 Rapport hors ligne", lambda: offline_report_html(version, obj),
+                       file_name=f"thrive_track_rapport_{pd.Timestamp.now(tz='Africa/Abidjan'):%Y-%m-%d}.html",
+                       mime="text/html", width="stretch", key="offline_dl",
+                       help="Un fichier unique (ECAM + UPAS) qui s'ouvre sans l'application : à envoyer par "
+                            "WhatsApp ou e-mail. Seulement les codes producteurs, sans noms ni GPS.")
+
+
 # ----------------------------------------------------------------------------
 # Application
 # ----------------------------------------------------------------------------
@@ -1968,7 +2081,7 @@ PAGES = {
     "ECAM": ["Tableau de bord", "Producteurs", "Coachs", "Symptômes", "Carte", "Données"],
     "UPAS": ["Tableau de bord", "Suivi producteurs", "Inspections", "Promesses", "Carte", "Données"],
 }
-h1, h0, h2, h3 = st.columns([1.05, 1.15, 4.6, 1.3], vertical_alignment="center")
+h1, h0, h2, h4, h3 = st.columns([1.05, 1.15, 4.4, 1.45, 1.25], vertical_alignment="center")
 with h1:
     html("<span class='logo'>Thrive·Track</span>")
 with h0:
@@ -1979,6 +2092,8 @@ with h2:
     with st.container(key="nav"):
         page = st.segmented_control("Navigation", PAGES[coop], default="Tableau de bord", key=f"nav_{coop}",
                                     label_visibility="collapsed") or "Tableau de bord"
+with h4:
+    offline_button()
 with h3:
     pop = st.popover("⚙ Paramètres", width="stretch")
 
@@ -2029,36 +2144,6 @@ prod = (df.sort_values("date").groupby("prod_code", dropna=True)
              fiches=("prod_nom", "size")))
 n_fiches, n_prod, n_coach = len(df), len(prod), df["agent_id"].nunique()
 hectares = prod["superficie"].sum()
-
-
-def _tri(s: pd.Series):
-    """Oui si au moins une fiche dit Oui, Non si seulement des Non, vide sinon."""
-    if (s == True).any():  # noqa: E712
-        return True
-    if (s == False).any():  # noqa: E712
-        return False
-    return np.nan
-
-
-def consolidate(d: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
-    """Fusionne les fiches en double : une ligne par clé (producteur, ou producteur + parcelle)."""
-    agg = {}
-    for c in d.columns:
-        if c in keys:
-            continue
-        if c in ("engagement", "cssvd"):
-            agg[c] = _tri
-        elif c.startswith(("doc_", "sym_")):
-            agg[c] = "max"
-        elif c == "date":
-            agg[c] = "max"
-        else:
-            agg[c] = "last"  # dernière valeur renseignée
-    out = d.sort_values("date").groupby(keys, dropna=False, sort=False).agg(agg).reset_index()
-    out["doc_aucun"] = ((out["doc_fiche"] != 1) & (out["doc_promesse"] != 1)).astype(int)
-    for c in ("engagement", "cssvd"):
-        out[c] = out[c].astype("object")
-    return out
 
 
 # Indicateurs : 1 ligne par code producteur (pp). « parc » (1 ligne par parcelle) sert seulement à l'export terrain.
