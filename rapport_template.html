@@ -109,7 +109,7 @@ body{font-family:"Outfit",-apple-system,"Segoe UI",Roboto,sans-serif;color:var(-
 .mini{display:flex;align-items:center;gap:8px}
 .mini .b{width:64px;height:7px;border-radius:9px;background:var(--soft);overflow:hidden}
 .mini .b i{display:block;height:100%;background:var(--g2);border-radius:9px}
-.mini.lo .b i{background:var(--amber)} .mini.zero .b i{background:var(--red)}
+.mini.lo .b i{background:var(--amber)} .mini.neu .b i{background:var(--muted)} .mini.zero .b i{background:var(--red)}
 
 .list-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
 .list-head h3{margin:0}
@@ -240,7 +240,7 @@ const COOPS = {
     funnel: r => [['Enquêtés', r.length], ['Engagés', cnt(r, x => x.eng === true)], ['Fiche CSSVD', cnt(r, x => x.fiche)], ['Promesse de taille', cnt(r, x => x.prom)]],
     alert: () => DATA.ecam_dup ? `<b>${DATA.ecam_dup} fiche(s) en double</b> sur ${DATA.ecam_fiches} saisies : elles sont regroupées, les indicateurs sont calculés une seule fois par code producteur. Le détail est dans l'application.` : '',
     bars: [['Engagés', '--g1', x => x.eng === true], ['Refus', '--red', x => x.eng === false], ['Fiche CSSVD', '--g2', x => x.fiche], ['Promesse', '--amber', x => x.prom]],
-    sec: [['Engagés', x => x.eng === true], ['Fiche CSSVD', x => x.fiche], ['Promesse', x => x.prom], ['Signes CSSVD', x => x.cssvd === true]],
+    sec: [['Engagés', x => x.eng === true], ['Fiche CSSVD', x => x.fiche], ['Promesse', x => x.prom], ['Signes CSSVD', x => x.cssvd === true, 'neu']],
     qf: [['all', 'Tous', () => true], ['ref', 'Refus', x => x.eng === false], ['cs', 'Signes CSSVD', x => x.cssvd === true],
          ['nofi', 'Sans fiche CSSVD', x => !x.fiche], ['nopr', 'Sans promesse', x => !x.prom]],
     cols: [['code', 'Code', x => `<span class="code">${esc(x.code)}</span>`], ['section', 'Section'], ['coach', 'Coach'], ['genre', 'Genre'],
@@ -380,8 +380,8 @@ function renderCharts(r) {
 
 function renderSections(r) {
   const cfg = COOPS[S.coop], secs = uniq(r.map(x => x.section));
-  const cell = (g, f) => { const p = pct(cnt(g, f), g.length); return `<td><div class="mini ${p === 0 ? 'zero' : p < 50 ? 'lo' : ''}"><div class="b"><i style="width:${p}%"></i></div>${p} %</div></td>`; };
-  const line = (name, g, tot) => `<tr class="${tot ? 'tot' : ''}"><td>${esc(name)}</td><td>${g.length}</td>${cfg.sec.map(c => cell(g, c[1])).join('')}</tr>`;
+  const cell = (g, f, neu) => { const p = pct(cnt(g, f), g.length); return `<td><div class="mini ${neu ? 'neu' : p === 0 ? 'zero' : p < 50 ? 'lo' : ''}"><div class="b"><i style="width:${p}%"></i></div>${p} %</div></td>`; };
+  const line = (name, g, tot) => `<tr class="${tot ? 'tot' : ''}"><td>${esc(name)}</td><td>${g.length}</td>${cfg.sec.map(c => cell(g, c[1], c[2])).join('')}</tr>`;
   $('secTbl').innerHTML = `<table class="stbl"><thead><tr><th>Section</th><th>Producteurs</th>${cfg.sec.map(c => `<th>${c[0]}</th>`).join('')}</tr></thead><tbody>
     ${secs.map(s => line(s, r.filter(x => x.section === s))).join('')}${secs.length > 1 ? line('Total', r, true) : ''}</tbody></table>`;
 }
