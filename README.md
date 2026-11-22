@@ -117,6 +117,31 @@ gardées sur le serveur uniquement : elles disparaissent à chaque redémarrage 
 
 On peut republier un seul fichier (par ex. seulement les promesses UPAS) : les autres restent inchangés.
 
+### ECAM : fusion avec les données déjà publiées
+
+Le bouton **« ECAM : ajouter aux données déjà publiées (fusion) »** est activé par défaut :
+
+- les fiches déjà publiées sont **conservées**, même si elles ne sont plus dans le nouvel export
+  (export partiel, fiches supprimées sur Kobo…) ;
+- les nouvelles fiches sont **ajoutées** ;
+- une fiche présente dans les deux (même identifiant Kobo `_uuid`) est **mise à jour** avec la version du nouvel export.
+
+Avant de publier, l'écran affiche le bilan : « N déjà publiées + N dans le fichier → N nouvelles,
+N mises à jour, N conservées · N au total ». Le nouvel export doit avoir le même format que le précédent
+(même choix *libellés / noms XML* dans Kobo), sinon la fusion est refusée.
+Désactivez le bouton pour **remplacer** complètement les données. Les fichiers UPAS sont toujours remplacés.
+
+**💾 Tout l'ECAM (.xlsx)** télécharge l'ensemble des fiches fusionnées (sauvegarde).
+
+### Archive des photos
+
+À chaque publication ECAM, les photos de l'export (symptômes, documents, photo du producteur)
+sont téléchargées depuis Kobo et **enregistrées dans le dépôt de données** (`photos/`).
+Elles restent visibles même si la soumission est supprimée sur Kobo. Nécessite `KOBO_TOKEN`.
+
+Le bouton **🖼 Archiver N photo(s)** relance l'archivage des photos manquantes (par ex. après un échec réseau).
+Compter environ 200 Ko par photo : prévoir de surveiller la taille du dépôt (GitHub recommande moins de 1 à 5 Go).
+
 ## Coopératives
 
 Le menu en haut à gauche permet de passer de **ECAM** à **UPAS**.

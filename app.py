@@ -408,8 +408,16 @@ def kobo_token() -> str:
     return tok.strip()
 
 
-@st.cache_data(show_spinner=False, ttl=3600, max_entries=500)
 def fetch_image(url: str, token: str) -> tuple[bytes | None, str]:
+    """Photo d'un symptôme : copie archivée d'abord (permanente), sinon téléchargement depuis Kobo."""
+    img = stored_photo(url)
+    if img:
+        return img, "ok"
+    return download_kobo(url, token)
+
+
+@st.cache_data(show_spinner=False, ttl=3600, max_entries=500)
+def download_kobo(url: str, token: str) -> tuple[bytes | None, str]:
     """Télécharge une photo Kobo -> (JPEG, "ok") ou (None, cause : acces / introuvable / format / reseau)."""
     import requests
     from PIL import Image
@@ -950,6 +958,194 @@ def load() -> tuple[pd.DataFrame, pd.DataFrame, str, dict]:
     return d, d, "Données de démonstration", {}
 
 
+# ----------------------------------------------------------------------------
+# Archive des photos : chaque photo Kobo est copiée dans le dépôt de données (photos/<clé>.jpg).
+# Elle reste visible même si la soumission est supprimée sur Kobo ou si la clé Kobo change.
+# ----------------------------------------------------------------------------
+PHOTO_DIR = os.path.join(SHARED_DIR, "photos")
+
+
+def photo_key(url: str) -> str:
+    import hashlib
+
+    return hashlib.sha1(str(url).split("?")[0].rstrip("/").encode()).hexdigest()[:24]
+
+
+def photo_urls(raw: pd.DataFrame) -> list[str]:
+    """Tous les liens de photos de l'export (symptômes, documents, photo du producteur)."""
+    cols = [c for c in raw.columns if _norm(c).endswith("_url")]
+    if not cols:
+        return []
+    v = raw[cols].stack().astype(str).str.strip()
+    return list(dict.fromkeys(v[v.str.startswith("http")]))
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def archived_keys() -> frozenset[str]:
+    """Clés des photos déjà archivées (disque du serveur + dépôt GitHub)."""
+    keys = set()
+    if os.path.isdir(PHOTO_DIR):
+        keys |= {f[:-4] for f in os.listdir(PHOTO_DIR) if f.endswith(".jpg")}
+    if gh_cfg():
+        try:
+            r = _gh("GET", f"git/trees/{gh_cfg()[2]}?recursive=1")
+            if r.status_code == 200:
+                keys |= {t["path"][7:-4] for t in r.json().get("tree", [])
+                         if t["path"].startswith("photos/") and t["path"].endswith(".jpg")}
+        except Exception:
+            pass
+    return frozenset(keys)
+
+
+def _save_photo_local(key: str, data: bytes) -> None:
+    os.makedirs(PHOTO_DIR, exist_ok=True)
+    with open(os.path.join(PHOTO_DIR, key + ".jpg"), "wb") as f:
+        f.write(data)
+
+
+def stored_photo(url: str) -> bytes | None:
+    """Copie archivée d'une photo (disque du serveur, sinon dépôt GitHub), ou None."""
+    key = photo_key(url)
+    path = os.path.join(PHOTO_DIR, key + ".jpg")
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return f.read()
+    if gh_cfg() and key in archived_keys():
+        try:
+            r = _gh("GET", f"contents/photos/{key}.jpg?ref={gh_cfg()[2]}", accept="application/vnd.github.raw")
+        except Exception:
+            return None
+        if r.status_code == 200:
+            _save_photo_local(key, r.content)
+            return r.content
+    return None
+
+
+def gh_commit_files(files: dict[str, bytes], message: str) -> tuple[bool, str]:
+    """Envoie plusieurs fichiers en UN seul commit (API Git de GitHub)."""
+    import base64
+
+    branch = gh_cfg()[2]
+    ref = _gh("GET", f"git/ref/heads/{branch}")
+    if ref.status_code != 200:
+        return False, f"GitHub {ref.status_code} : branche « {branch} » introuvable (le dépôt est-il vide ?)"
+    head = ref.json()["object"]["sha"]
+    base_tree = _gh("GET", f"git/commits/{head}").json()["tree"]["sha"]
+    items = []
+    for path, data in files.items():
+        b = _gh("POST", "git/blobs", json={"content": base64.b64encode(data).decode(), "encoding": "base64"})
+        if b.status_code != 201:
+            return False, f"GitHub {b.status_code} : {b.text[:200]}"
+        items.append({"path": path, "mode": "100644", "type": "blob", "sha": b.json()["sha"]})
+    tree = _gh("POST", "git/trees", json={"base_tree": base_tree, "tree": items})
+    if tree.status_code != 201:
+        return False, f"GitHub {tree.status_code} : {tree.text[:200]}"
+    commit = _gh("POST", "git/commits", json={"message": message, "tree": tree.json()["sha"], "parents": [head]})
+    if commit.status_code != 201:
+        return False, f"GitHub {commit.status_code} : {commit.text[:200]}"
+    upd = _gh("PATCH", f"git/refs/heads/{branch}", json={"sha": commit.json()["sha"]})
+    return (True, "ok") if upd.status_code == 200 else (False, f"GitHub {upd.status_code} : {upd.text[:200]}")
+
+
+def archive_photos(raw: pd.DataFrame, token: str, progress=None) -> dict:
+    """Télécharge depuis Kobo les photos pas encore archivées et les enregistre (par lots de 20)."""
+    urls = photo_urls(raw)
+    have = archived_keys()
+    todo = [u for u in urls if photo_key(u) not in have]
+    res = {"total": len(urls), "deja": len(urls) - len(todo), "ok": 0, "echecs": {}, "erreur": ""}
+    batch: dict[str, bytes] = {}
+
+    def flush() -> None:
+        if batch and gh_cfg() and not res["erreur"]:
+            ok, err = gh_commit_files(batch, f"Archive de {len(batch)} photo(s)")
+            if not ok:
+                res["erreur"] = err
+        batch.clear()
+
+    for i, u in enumerate(todo, start=1):
+        img, why = download_kobo(u, token)
+        if img:
+            key = photo_key(u)
+            _save_photo_local(key, img)
+            batch[f"photos/{key}.jpg"] = img
+            res["ok"] += 1
+        else:
+            res["echecs"][why] = res["echecs"].get(why, 0) + 1
+        if len(batch) >= 20:
+            flush()
+        if progress:
+            progress(i / len(todo), f"Archivage des photos… {i}/{len(todo)}")
+    flush()
+    archived_keys.clear()
+    return res
+
+
+def archive_report(res: dict) -> str:
+    txt = (f"🖼 Photos : **{res['ok']}** archivée(s) maintenant, {res['deja']} déjà archivée(s), "
+           f"{res['total']} au total.")
+    if res["echecs"]:
+        txt += "\n\n⚠ Non archivées : " + " ; ".join(f"{n} — {FAIL_MSG.get(w, w)}" for w, n in res["echecs"].items())
+    if res["erreur"]:
+        txt += f"\n\n✗ Envoi vers GitHub impossible : {res['erreur']} (photos gardées sur le serveur seulement)."
+    return txt
+
+
+# ----------------------------------------------------------------------------
+# Fusion ECAM : le nouvel export est ajouté aux données déjà publiées (rien n'est perdu).
+# Une soumission est identifiée par `_uuid` (sinon `_id`) ; la version la plus récente l'emporte.
+# ----------------------------------------------------------------------------
+def _key_col(df: pd.DataFrame) -> str | None:
+    for k in ("_uuid", "_id"):
+        c = next((c for c in df.columns if _norm(c) == k), None)
+        if c is not None:
+            return c
+    return None
+
+
+def merge_ecam(old: pd.DataFrame, new: pd.DataFrame) -> tuple[pd.DataFrame | None, dict]:
+    drop = [c for c in set(old.columns) | set(new.columns) if _norm(c) == "_index"]
+    old = old.drop(columns=[c for c in drop if c in old])
+    new = new.drop(columns=[c for c in drop if c in new])
+    common = len(set(old.columns) & set(new.columns)) / max(len(set(new.columns)), 1)
+    st_ = {"anciennes": len(old), "fichier": len(new)}
+    if common < 0.5:
+        st_["erreur"] = (f"les colonnes du nouveau fichier ne correspondent pas aux données publiées "
+                         f"({common:.0%} en commun) : exportez de Kobo avec le même format (libellés / noms XML).")
+        return None, st_
+    k = _key_col(new) if _key_col(new) == _key_col(old) else None
+    if k:
+        new = new.drop_duplicates(subset=k, keep="last")
+        nk, ok_ = new[k].astype(str), old[k].astype(str)
+        kept = old[~ok_.isin(set(nk))]
+        st_["maj"] = int(nk.isin(set(ok_)).sum())
+        st_["ajoutees"] = len(new) - st_["maj"]
+        merged = pd.concat([kept, new], ignore_index=True)
+    else:  # pas d'identifiant Kobo : on retire seulement les lignes strictement identiques
+        merged = pd.concat([old, new], ignore_index=True)
+        merged = merged.loc[~merged.astype(str).duplicated(keep="last")].reset_index(drop=True)
+        st_["maj"] = 0
+        st_["ajoutees"] = len(merged) - len(old)
+    st_["conservees"] = len(merged) - len(new)  # lignes absentes du nouveau fichier mais gardées
+    sub = next((c for c in merged.columns if _norm(c) == "_submission_time"), None)
+    if sub is not None:
+        order = pd.to_datetime(merged[sub], errors="coerce", utc=True)
+        merged = merged.iloc[order.argsort(kind="stable")].reset_index(drop=True)
+    st_["total"] = len(merged)
+    return merged, st_
+
+
+def df_to_xlsx_bytes(df: pd.DataFrame) -> bytes:
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False)
+    return buf.getvalue()
+
+
+def published_raw(slot: str) -> pd.DataFrame | None:
+    """Données actuellement publiées pour cet emplacement (None si rien n'a été publié)."""
+    meta = sync_slot(slot)
+    return load_slot_raw(slot, meta["version"]) if meta else None
+
+
 def is_admin() -> bool:
     return bool(st.session_state.get("is_admin"))
 
@@ -973,8 +1169,15 @@ def admin_panel() -> None:
                 else:
                     st.error("Mot de passe incorrect.")
         return
+    flash = st.session_state.pop("admin_flash", None)
+    if flash:
+        (st.success if flash[0] else st.error)(flash[1])
     ups = st.file_uploader("Fichiers de données (.xlsx / .csv) — ECAM ou UPAS, un ou plusieurs",
                            type=["xlsx", "xls", "csv"], key="upload", accept_multiple_files=True)
+    merge = st.toggle("ECAM : ajouter aux données déjà publiées (fusion)", value=True, key="ecam_merge",
+                      help="Les fiches déjà publiées sont conservées, les nouvelles sont ajoutées et les fiches "
+                           "modifiées sur Kobo sont mises à jour (identifiant `_uuid`). Désactivez pour remplacer.")
+    old_ecam = published_raw("ecam") if merge else None
     ready = []
     for up in ups or []:
         try:
@@ -986,22 +1189,58 @@ def admin_panel() -> None:
         if slot is None or rawf.empty:
             st.error(f"{up.name} : type de fichier non reconnu (ni export ECAM, ni fichier UPAS).")
             continue
-        st.caption(f"✓ **{up.name}** → {SLOTS[slot]['label']} · {len(rawf)} lignes")
-        ready.append((slot, up))
+        data, info = up.getvalue(), f"{len(rawf)} lignes"
+        if slot == "ecam" and old_ecam is not None:
+            merged, s = merge_ecam(old_ecam, rawf)
+            if merged is None:
+                st.error(f"{up.name} : fusion impossible — {s['erreur']}")
+                continue
+            data = df_to_xlsx_bytes(merged)
+            info = (f"fusion : {s['anciennes']} déjà publiées + {s['fichier']} dans le fichier → "
+                    f"**{s['ajoutees']} nouvelles**, {s['maj']} mises à jour, {s['conservees']} conservées · "
+                    f"**{s['total']} au total**")
+        st.caption(f"✓ **{up.name}** → {SLOTS[slot]['label']} · {info}")
+        ready.append((slot, up.name, data))
+    token = kobo_token()
     if ups:
         if st.button(f"📤 Publier {len(ready)} fichier(s) pour tous", type="primary", width="stretch",
                      disabled=not ready):
             msgs, all_ok = [], True
             with st.spinner("Publication…"):
-                for slot, up in ready:
-                    ok, msg = publish(slot, up.getvalue(), up.name)
+                for slot, name, data in ready:
+                    ok, msg = publish(slot, data, name)
                     all_ok &= ok
                     msgs.append(("✓ " if ok else "✗ ") + msg)
-            (st.success if all_ok else st.error)("\n\n".join(msgs))
+            if all_ok and token and any(s == "ecam" for s, _, _ in ready):
+                bar = st.progress(0.0, "Archivage des photos…")
+                res = archive_photos(read_bytes(next(d for s, _, d in ready if s == "ecam"), "x.xlsx"),
+                                     token, bar.progress)
+                bar.empty()
+                msgs.append(archive_report(res))
+            elif all_ok and any(s == "ecam" for s, _, _ in ready):
+                msgs.append("⚠ Photos non archivées : clé Kobo absente (`KOBO_TOKEN`).")
             if all_ok:
+                st.session_state["admin_flash"] = (True, "\n\n".join(msgs))
                 st.rerun()
+            st.error("\n\n".join(msgs))
     st.caption("Stockage : " + ("**GitHub privé** ✓ (permanent)" if gh_cfg() else
                                 "⚠ **serveur uniquement** — perdu au redémarrage. Configurez `GITHUB_TOKEN` et `DATA_REPO`."))
+    cur = published_raw("ecam")
+    if cur is not None:
+        urls = photo_urls(cur)
+        have = archived_keys()
+        missing = sum(photo_key(u) not in have for u in urls)
+        st.caption(f"ECAM publié : **{len(cur)} fiches** · photos archivées : **{len(urls) - missing}/{len(urls)}**")
+        c1, c2 = st.columns(2)
+        if c1.button(f"🖼 Archiver {missing} photo(s)", width="stretch", disabled=not (missing and token),
+                     help=None if token else "Clé Kobo (KOBO_TOKEN) nécessaire."):
+            bar = st.progress(0.0, "Archivage des photos…")
+            res = archive_photos(cur, token, bar.progress)
+            bar.empty()
+            st.session_state["admin_flash"] = (not res["erreur"], archive_report(res))
+            st.rerun()
+        c2.download_button("💾 Tout l'ECAM (.xlsx)", df_to_xlsx_bytes(cur), "ecam_toutes_les_fiches.xlsx",
+                           width="stretch", help="Sauvegarde de toutes les fiches publiées (fusionnées).")
     st.text_input("Jeton API Kobo (photos)", type="password", key="kobo_token",
                   help="Facultatif si KOBO_TOKEN est défini dans les Secrets.")
     if st.button("Se déconnecter", width="stretch"):
