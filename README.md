@@ -159,6 +159,7 @@ Chaque publication est enregistrée comme une version dans le dépôt de donnée
 
 ## 3 bis. Utilisation
 
+- **Mode clair / sombre** : automatique, selon le réglage du téléphone ou du PC (application et rapport hors ligne).
 - Les utilisateurs n'ont rien à charger : ils voient la dernière version publiée
   (date affichée dans ⚙ Paramètres).
 - **Objectif** : 1 000 producteurs par défaut (modifiable dans ⚙ Paramètres).

@@ -1,9 +1,19 @@
+# Thème : clair ou sombre selon le réglage du téléphone / PC de l'utilisateur
 [theme]
-base = "light"
+primaryColor = "#5aa55a"
+font = "sans-serif"
+
+[theme.light]
 primaryColor = "#5aa55a"
 backgroundColor = "#eef6ea"
 secondaryBackgroundColor = "#ffffff"
-textColor = "#222222"
+textColor = "#18261a"
+
+[theme.dark]
+primaryColor = "#86cc82"
+backgroundColor = "#0f1a11"
+secondaryBackgroundColor = "#1a291c"
+textColor = "#e8f2e5"
 
 [server]
 # Taille maximale d'un export Kobo chargé via « ⚙ Paramètres » (Mo)

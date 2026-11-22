@@ -52,11 +52,13 @@ CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap');
 :root { --ink:#18261a; --muted:#6a7b69; --line:rgba(31,58,36,.09); --soft:#f3f8f0; --hero:#1d3622; --hero2:#2f5a36;
         --g1:#2e7d32; --g2:#5aa55a; --g3:#9fd19c; --amber:#e3a33b; --red:#d0564f;
+        --bg:#eef6ea; --bg2:#dcebd5; --card:rgba(255,255,255,.78); --card-solid:#fff; --btn:rgba(255,255,255,.85);
+        --accent:#2f5a36; --warn-ink:#7a4d00;
         --shadow:0 1px 2px rgba(20,40,20,.04),0 8px 30px rgba(20,50,20,.07); }
 html, body, .stApp, [class*="css"], button, input, textarea { font-family: 'Outfit', sans-serif !important; }
-.stApp { background:#eef6ea;
-  background-image: radial-gradient(900px 500px at 8% -10%, #dcebd5, transparent 60%),
-                    radial-gradient(700px 500px at 100% 0%, #dcebd5, transparent 55%);
+.stApp { background:var(--bg);
+  background-image: radial-gradient(900px 500px at 8% -10%, var(--bg2), transparent 60%),
+                    radial-gradient(700px 500px at 100% 0%, var(--bg2), transparent 55%);
   background-attachment: fixed; color: var(--ink); }
 header[data-testid="stHeader"] { background: transparent; }
 .block-container { max-width: 1400px; padding: 1.4rem 1.6rem 2.6rem !important; }
@@ -65,7 +67,7 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
 
 /* Cartes */
 [class*="st-key-card"] {
-  background: rgba(255,255,255,.78); border: 1px solid var(--line);
+  background: var(--card); border: 1px solid var(--line);
   border-radius: 22px; padding: 20px 22px; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
   box-shadow: var(--shadow); animation: rise .5s ease both;
 }
@@ -98,11 +100,11 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
 /* Pills de progression */
 .prow { display:flex; gap:8px; align-items:flex-end; }
 .pcol { display:flex; flex-direction:column; gap:6px; }
-.plabel { font-size:.85rem; color:#333; }
+.plabel { font-size:.85rem; color:var(--ink); }
 .pill { height:40px; border-radius:999px; display:flex; align-items:center; padding:0 16px; font-size:.8rem; }
 .pill.dark { background:var(--hero); color:#fff; }
 .pill.green { background:#5aa55a; color:#fff; }
-.pill.outline { border:1.5px solid #9a9a9a; color:#333; background:transparent; }
+.pill.outline { border:1.5px solid var(--muted); color:var(--ink); background:transparent; }
 .pill.striped { padding:0; overflow:hidden; background: repeating-linear-gradient(-55deg, rgba(255,255,255,.0) 0 6px, rgba(255,255,255,.75) 6px 9px); border:1px solid rgba(255,255,255,.6);}
 .pill.striped > div { height:100%; border-radius:999px; display:flex; align-items:center; padding-left:16px; color:#fff;
   background: repeating-linear-gradient(-55deg, #5aa55a 0 8px, #6cb46a 8px 12px); }
@@ -114,7 +116,7 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
 .kp-pill { position:relative; width:100%; height:40px; border-radius:999px; overflow:hidden; display:flex; align-items:center;
            box-shadow: var(--shadow); border:1px solid var(--line); }
 .kp-pill span { position:relative; z-index:1; padding-left:16px; font-weight:600; font-size:1.15rem; }
-.kp-striped { background: rgba(255,255,255,.8); }
+.kp-striped { background: var(--card); }
 .kp-striped span { color:var(--ink); }
 .kp-fill { position:absolute; left:0; top:0; bottom:0; min-width:8px; border-radius:999px;
            background: linear-gradient(90deg, var(--g3), var(--g2)); }
@@ -124,7 +126,7 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
 
 /* Compteurs x / objectif : cartes avec anneau (même design que le rapport hors ligne) */
 .kpis { display:grid; grid-template-columns: 1.35fr repeat(4, 1fr); gap:16px; margin: 18px 0 14px; }
-.kpi { position:relative; overflow:hidden; background:rgba(255,255,255,.78); border:1px solid var(--line); border-radius:22px;
+.kpi { position:relative; overflow:hidden; background:var(--card); border:1px solid var(--line); border-radius:22px;
        padding:18px 20px; box-shadow:var(--shadow); backdrop-filter:blur(18px); animation: rise .5s ease both; min-width:0; }
 .kpi .lab { font-size:.84rem; color:var(--muted); font-weight:500; display:flex; align-items:center; gap:8px; line-height:1.15; }
 .kpi .ico { width:30px; height:30px; border-radius:10px; display:grid; place-items:center; background:var(--soft); font-size:15px; flex:none; }
@@ -135,7 +137,7 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
 .kpi .sub b { color:var(--red); }
 .ring { width:60px; height:60px; flex:none; }
 .ring circle { fill:none; stroke-width:7; }
-.ring .tr { stroke:rgba(31,58,36,.09); }
+.ring .tr { stroke:var(--line); }
 .ring .pr { stroke:var(--g2); stroke-linecap:round; transform:rotate(-90deg); transform-origin:50% 50%; }
 .ring text { font:600 13px 'Outfit', sans-serif; fill:var(--ink); text-anchor:middle; dominant-baseline:central; }
 .kpi.red .pr { stroke:var(--red); } .kpi.amber .pr { stroke:var(--amber); }
@@ -168,8 +170,9 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
 
 /* Sélecteur de coopérative + navigation : pilule en verre, bouton actif vert profond */
 .st-key-coop [data-testid="stButtonGroup"], .st-key-nav [data-testid="stButtonGroup"] {
-  background: rgba(255,255,255,.78); backdrop-filter: blur(14px); border:1px solid var(--line); border-radius:999px;
+  background: var(--card); backdrop-filter: blur(14px); border:1px solid var(--line); border-radius:999px;
   padding:4px; display:inline-flex; box-shadow: var(--shadow); }
+.st-key-coop [data-testid="stButtonGroup"], .st-key-nav [data-testid="stButtonGroup"] { flex-wrap:nowrap; }
 .st-key-coop button, .st-key-nav button { border:none !important; border-radius:999px !important; background:transparent !important;
   font-size:.88rem; padding: 4px 16px !important; min-height:36px; transition: background .2s, transform .15s; }
 .st-key-coop button p, .st-key-nav button p { color: var(--muted) !important; font-weight:600; }
@@ -181,12 +184,12 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
 .st-key-nav button[aria-checked="true"] p, .st-key-nav button[kind="segmented_controlActive"] p { color:#fff !important; }
 
 /* Alerte doublons */
-.st-key-card_doublons { background: color-mix(in srgb, var(--amber) 13%, #fff) !important; border:1px solid color-mix(in srgb, var(--amber) 40%, transparent) !important; padding: 6px 18px !important; }
-.st-key-card_doublons summary p { color:#7a4d00 !important; font-weight:600; }
+.st-key-card_doublons { background: color-mix(in srgb, var(--amber) 13%, var(--card-solid)) !important; border:1px solid color-mix(in srgb, var(--amber) 40%, transparent) !important; padding: 6px 18px !important; }
+.st-key-card_doublons summary p { color:var(--warn-ink) !important; font-weight:600; }
 
 /* Gros chiffres */
 .stat { display:flex; align-items:flex-end; gap:10px; }
-.stat .ic { width:32px; height:32px; border-radius:10px; background:rgba(255,255,255,.85); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:.85rem; margin-bottom:8px;}
+.stat .ic { width:32px; height:32px; border-radius:10px; background:var(--btn); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:.85rem; margin-bottom:8px;}
 .stat .num { font-size:3.2rem; font-weight:600; letter-spacing:-1.5px; line-height:1; color:var(--ink); }
 .stat .lab { font-size:.8rem; color:var(--muted); margin-top:2px; }
 
@@ -217,13 +220,13 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
 .cal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
 .cal-chip { background:var(--soft); border:1px solid var(--line); border-radius:999px; padding:4px 14px; font-size:.78rem; color:var(--ink); }
 .cal { display:grid; gap:0; position:relative; }
-.cal .dh { text-align:center; font-size:.85rem; color:#888; padding-bottom:6px; }
-.cal .dh b { display:block; font-weight:400; color:#888; }
-.cal .dh.today, .cal .dh.today b { color:#222; font-weight:500; }
-.cal .hr { font-size:.78rem; color:#333; padding-top:10px; }
-.cal .cell { border-left:1.5px dashed rgba(0,0,0,.12); min-height:48px; padding:4px 5px; }
+.cal .dh { text-align:center; font-size:.85rem; color:var(--muted); padding-bottom:6px; }
+.cal .dh b { display:block; font-weight:400; color:var(--muted); }
+.cal .dh.today, .cal .dh.today b { color:var(--ink); font-weight:500; }
+.cal .hr { font-size:.78rem; color:var(--ink); padding-top:10px; }
+.cal .cell { border-left:1.5px dashed var(--line); min-height:48px; padding:4px 5px; }
 .ev { border-radius:14px; padding:6px 10px; font-size:.72rem; line-height:1.15; margin-bottom:4px; box-shadow:0 2px 8px rgba(0,0,0,.06);}
-.ev.g { background:linear-gradient(135deg, var(--g2), var(--g1)); color:#fff; } .ev.w { background:#fff; color:var(--ink); border:1px solid var(--line); }
+.ev.g { background:linear-gradient(135deg, var(--g2), var(--g1)); color:#fff; } .ev.w { background:var(--card-solid); color:var(--ink); border:1px solid var(--line); }
 .ev small { display:block; opacity:.8; font-size:.65rem; }
 
 /* Liste repliable / mini barres */
@@ -231,13 +234,13 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
 [data-testid="stExpander"] summary { border-bottom:1px solid var(--line); padding-left:0; }
 [data-testid="stExpander"] summary p { font-size:.98rem; color:var(--ink); font-weight:500; }
 .mini { display:flex; align-items:center; gap:10px; margin:6px 0; font-size:.82rem; }
-.mini .nm { width:46%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#333;}
+.mini .nm { width:46%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--ink);}
 .mini .tr { flex:1; height:8px; border-radius:99px; background:var(--soft); overflow:hidden; }
 .mini .tr > div { height:100%; border-radius:99px; background:linear-gradient(90deg, var(--g2), var(--g1)); }
-.mini .vl { width:38px; text-align:right; color:#555; }
+.mini .vl { width:38px; text-align:right; color:var(--muted); }
 
 [data-testid="stPopover"] button, .stDownloadButton button, .stButton button, .stLinkButton a {
-  border-radius:999px !important; border:1px solid var(--line) !important; background:rgba(255,255,255,.85) !important;
+  border-radius:999px !important; border:1px solid var(--line) !important; background:var(--btn) !important;
   box-shadow: var(--shadow); transition: transform .15s, border-color .15s; font-weight:500; }
 [data-testid="stPopover"] button:hover, .stDownloadButton button:hover, .stButton button:hover { border-color: var(--g2) !important; transform: translateY(-1px); }
 .stButton button[kind="primary"] { background: var(--hero) !important; color:#fff !important; border-color:transparent !important; }
@@ -250,6 +253,27 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
 .st-key-card_table [data-testid="stDataFrame"] { border-radius:16px; overflow:hidden; }
 .stats .lab { margin-left: 40px; }
 
+
+/* ===================== Mode sombre (suit le réglage du téléphone / PC) ===================== */
+@media (prefers-color-scheme: dark) {
+  :root { --ink:#e8f2e5; --muted:#9db29a; --line:rgba(220,240,215,.10); --soft:#1f3122; --hero:#2b5a33; --hero2:#3f8049;
+    --g1:#62b866; --g2:#86cc82; --g3:#3f7a43; --amber:#f0b54f; --red:#ee7a72;
+    --bg:#0f1a11; --bg2:#14291a; --card:rgba(28,42,30,.78); --card-solid:#1a291c; --btn:rgba(36,54,38,.9);
+    --accent:#9fd89a; --warn-ink:#f3c977; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35); }
+  .stApp .muted, .stApp [data-testid="stCaptionContainer"] p { color: var(--muted) !important; }
+  .kpi.hero .ring .pr { stroke:#c8f0c2; }
+  .stButton button p, .stDownloadButton button p, [data-testid="stPopover"] button p { color: var(--ink) !important; }
+  .st-key-offline_dl button p, .stButton button[kind="primary"] p { color:#fff !important; }
+  .kp-striped span { color: var(--ink); }
+  .ev.w small { color: var(--muted); }
+  /* graphiques Plotly : couleurs fixes du mode clair adaptées au fond sombre */
+  .js-plotly-plot [style*="fill: rgb(29, 54, 34)"] { fill:#dcefd8 !important; }
+  [style*="background:#1d3622"], [style*="background: #1d3622"], [style*="background: rgb(29, 54, 34)"] { background:#3f8049 !important; }
+  .js-plotly-plot [style*="fill: rgb(34, 34, 34)"] { fill:var(--ink) !important; }
+  .js-plotly-plot [style*="fill: rgb(102, 102, 102)"], .js-plotly-plot [style*="fill: rgb(106, 123, 105)"] { fill:var(--muted) !important; }
+  .js-plotly-plot [style*="fill: rgb(0, 0, 0)"][style*="fill-opacity: 0.07"] { fill:#ffffff !important; fill-opacity:.1 !important; }
+  .js-plotly-plot [style*="fill: rgb(185, 196, 182)"] { fill:#5c6e5a !important; }
+}
 /* ===================== Version tablette (< 1100 px) ===================== */
 @media (max-width: 1100px) {
   .block-container { padding: 1.4rem 1.4rem 2rem !important; }
@@ -1360,7 +1384,7 @@ def ring_chart(rate: float, label: str) -> go.Figure:
     fig = go.Figure(go.Pie(values=[r, 1 - r], hole=.8, sort=False, direction="clockwise",
                            marker=dict(colors=[GREEN, "rgba(0,0,0,.07)"]), textinfo="none", hoverinfo="skip"))
     fig.add_annotation(text=f"<span style='font-size:40px'>{r * 100:.0f}%</span><br>"
-                            f"<span style='font-size:12px;color:#666'>{label}</span>",
+                            f"<span style='font-size:12px;color:#6a7b69'>{label}</span>",
                        showarrow=False, font=dict(family=FONT, color="#222"))
     return base_layout(fig, 200)
 
@@ -1705,7 +1729,7 @@ def render_upas(page: str, pop) -> None:
     with w1:
         k_eng, k_insp, k_prom = n_eng / cible, n_insp / cible, n_prom / cible
         html(f"""
-        <div class='welcome'>Coopérative <span style='color:#2f5a36'>UPAS</span></div>
+        <div class='welcome'>Coopérative <span style='color:var(--accent)'>UPAS</span></div>
         <div class='kp-row'>
           <div class='kp'><span class='kp-lab'>Engagement du ménage</span>
             <div class='kp-pill kp-striped'><div class='kp-fill' style='width:{min(k_eng * 100, 100):.1f}%'></div>
@@ -1814,7 +1838,7 @@ def render_upas(page: str, pop) -> None:
             tot = max(int(per.sum()), 1)
             seg_cols = [GREEN, DARK, GREY, GREEN_L, "#3e7a3c"]
             seg = "".join(
-                f"<div style='flex:{max(v / tot, .1):.3f}'><span class='muted' style='color:#333'>{v / tot * 100:.0f}%</span>"
+                f"<div style='flex:{max(v / tot, .1):.3f}'><span class='muted' style='color:var(--ink)'>{v / tot * 100:.0f}%</span>"
                 f"<div class='bar' style='background:{seg_cols[i % 5]}'>{periode_label(k).split()[0] if v / tot > .2 else ''}</div></div>"
                 for i, (k, v) in enumerate(per.items()))
             with st.container(key="card_docs"):
@@ -2139,7 +2163,7 @@ PAGES = {
     "ECAM": ["Tableau de bord", "Producteurs", "Coachs", "Symptômes", "Carte", "Données"],
     "UPAS": ["Tableau de bord", "Suivi producteurs", "Inspections", "Promesses", "Carte", "Données"],
 }
-h1, h0, h2, h4, h3 = st.columns([1.35, 1.1, 4.15, 1.4, 1.2], vertical_alignment="center")
+h1, h0, h2, h4, h3 = st.columns([1.2, 1.25, 4.6, 1.3, 1.1], vertical_alignment="center")
 with h1:
     html("<div class='brand'><div class='lg'>🌿</div><div><b>Thrive·Track</b><small>Suivi CSSVD</small></div></div>")
 with h0:
@@ -2227,7 +2251,7 @@ k_prom = prod_rate(df["doc_promesse"] == 1)
 w1, w2 = st.columns([1.55, 1], vertical_alignment="bottom")
 with w1:
     html(f"""
-    <div class='welcome'>Coopérative <span style='color:#2f5a36'>ECAM</span></div>
+    <div class='welcome'>Coopérative <span style='color:var(--accent)'>ECAM</span></div>
     <div class='kp-row'>
       <div class='kp'><span class='kp-lab'>Engagement du ménage</span>
         <div class='kp-pill kp-striped'><div class='kp-fill' style='width:{min(max(k_eng * 100, 0), 100):.1f}%'></div>
@@ -2380,7 +2404,7 @@ if page == "Tableau de bord":
         }
         seg_cols = [GREEN, DARK, GREY]
         seg = "".join(
-            f"<div style='flex:{max(v, .08):.3f}'><span class='muted' style='color:#333'>{pct(v)}</span>"
+            f"<div style='flex:{max(v, .08):.3f}'><span class='muted' style='color:var(--ink)'>{pct(v)}</span>"
             f"<div class='bar' style='background:{c}'>{k if v > .25 else ''}</div></div>"
             for (k, v), c in zip(docs.items(), seg_cols))
         with st.container(key="card_docs"):
