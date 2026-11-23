@@ -676,7 +676,7 @@ def _style_sheet(ws, t: pd.DataFrame, freeze: str = "F2") -> None:
             for r in range(2, len(t) + 2):
                 cell = ws.cell(r, i)
                 if cell.value:
-                    cell.hyperlink, cell.value, cell.style = cell.value, "Voir la photo", "Hyperlink"
+                    cell.hyperlink, cell.value, cell.style = cell.value, "Photo Kobo (connexion requise)", "Hyperlink"
         else:
             width = max([len(str(col))] + [len(str(v)) for v in t[col].head(500)]) + 2
             ws.column_dimensions[letter].width = min(max(width, 10), 45)
@@ -2735,8 +2735,39 @@ elif page == "Symptômes":
         m2.metric("Producteurs", tab["Code planteur"].nunique())
         m3.metric("Coachs", tab["ID coach"].nunique())
         m4.metric("Superficie totale (ha)", fmt(tab.drop_duplicates("Code planteur")["Superficie totale (ha)"].sum(), 1))
-        photo_cfg = {c: st.column_config.LinkColumn(c, display_text="📷 Voir") for c in tab if c.startswith("Photo")}
-        st.dataframe(tab, width="stretch", hide_index=True, height=380, column_config=photo_cfg)
+        # Les liens Kobo ne s'ouvrent pas dans un navigateur sans compte Kobo (« Non trouvé ») :
+        # on affiche 📷 dans le tableau, et les photos des lignes cochées juste en dessous (via la clé Kobo / l'archive).
+        photo_cols = [c for c in tab if c.startswith("Photo")]
+        disp = tab.copy()
+        for c in photo_cols:
+            disp[c] = np.where(tab[c].astype("string").str.startswith("http").fillna(False), "📷", "")
+        ev = st.dataframe(disp, width="stretch", hide_index=True, height=380, key="tab_cssvd",
+                          on_select="rerun", selection_mode="multi-row")
+        rows = list(ev.selection.rows) if ev is not None and hasattr(ev, "selection") else []
+        if not rows:
+            st.caption("👆 Cochez une ou plusieurs lignes (case à gauche) pour afficher leurs photos ici.")
+        token = kobo_token()
+        for ridx in rows[:5]:
+            r = tab.iloc[ridx]
+            pics = [(c.split("– ", 1)[-1], r[c]) for c in photo_cols
+                    if pd.notna(r[c]) and str(r[c]).startswith("http")]
+            html(f"<p class='card-title' style='margin-top:14px'>📷 {r['Nom producteur']} · {r['Code planteur']} · "
+                 f"parcelle {r['Code parcelle']} <span class='muted'>· {r['Symptômes observés']}</span></p>")
+            if not pics:
+                st.info("Aucune photo pour cette parcelle.")
+                continue
+            gcols = st.columns(min(len(pics), 3))
+            for i, (lab, url) in enumerate(pics):
+                with gcols[i % len(gcols)]:
+                    with st.spinner(""):
+                        img, why = fetch_image(url, token)
+                    if img:
+                        st.image(img, width="stretch")
+                    else:
+                        st.warning(f"Photo non affichée : {FAIL_MSG.get(why, why)}")
+                    st.caption(lab)
+        if len(rows) > 5:
+            st.caption(f"Photos des 5 premières lignes cochées affichées ({len(rows)} cochées).")
         stamp = pd.Timestamp.now().strftime("%Y%m%d")
         d1, d3, d2, _ = st.columns([1, 1.3, 1, 1])
         d1.download_button("⬇ Exporter Excel", to_xlsx(tab), file_name=f"producteurs_swollen_shoot_{stamp}.xlsx",
