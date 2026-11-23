@@ -402,18 +402,19 @@ def ring_svg(p: float) -> str:
     c = 2 * np.pi * 26
     return (f"<svg class='ring' viewBox='0 0 64 64'><circle class='tr' cx='32' cy='32' r='26'/>"
             f"<circle class='pr' cx='32' cy='32' r='26' stroke-dasharray='{c:.1f}' stroke-dashoffset='{c * (1 - p / 100):.1f}'/>"
-            f"<text x='32' y='32'>{p:.0f}%</text></svg>")
+            f"<text x='32' y='32'>{(f'{p:.1f}'.replace('.', ',') if 0 < p < 10 else f'{p:.0f}')}%</text></svg>")
 
 
 def kpi_cards(items: list[dict], cible: int) -> str:
-    """Compteurs « x / objectif » : 1 grande carte verte + 4 cartes avec anneau."""
+    """Compteurs « x / objectif » : 1 grande carte verte + 4 cartes avec anneau.
+    L'anneau = nombre ÷ objectif (le même calcul que « x / 1 000 ») ; le taux sur les enquêtés est écrit dessous."""
     out = []
     for i, k in enumerate(items):
         hero = i == 0
         out.append(
             f"<div class='kpi {'hero' if hero else ''} {k.get('cls', '')}'>"
             f"<div class='lab'><span class='ico'>{k['ico']}</span>{k['lab']}</div>"
-            f"<div class='row'><div class='val'>{fmt(k['v'])}<small>/ {fmt(cible)}</small></div>{ring_svg(k['p'])}</div>"
+            f"<div class='row'><div class='val'>{fmt(k['v'])}<small>/ {fmt(cible)}</small></div>{ring_svg(k['v'] / cible * 100 if cible else 0)}</div>"
             f"<div class='sub'>{k['sub']}</div></div>")
     return "<div class='kpis'>" + "".join(out) + "</div>"
 
@@ -1906,7 +1907,7 @@ def render_upas(page: str, pop) -> None:
 
     html(kpi_cards([
         {"lab": "Producteurs suivis", "ico": "👥", "v": n_suivis, "p": r(n_suivis, cible),
-         "sub": f"{r(n_suivis, cible):.0f} % de l'objectif · {fmt(max(cible - n_suivis, 0))} restants"},
+         "sub": f"{fmt(max(cible - n_suivis, 0))} restants pour atteindre l'objectif"},
         {"lab": "Engagement du ménage", "ico": "🤝", "v": n_eng, "p": r(n_eng, n_suivis),
          "sub": " · ".join(x for x in [f"{r(n_eng, n_suivis):.0f} % des suivis", note("eng")] if x)},
         {"lab": "Inspection CSSVD", "ico": "🔍", "v": n_insp, "p": r(n_insp, n_eng),
@@ -2461,14 +2462,14 @@ def _r(a, b):
 
 html(kpi_cards([
     {"lab": "Producteurs enquêtés", "ico": "👥", "v": n_prod, "p": _r(n_prod, cible),
-     "sub": f"{_r(n_prod, cible):.0f} % de l'objectif · {n_saisies} fiches saisies"
+     "sub": f"{fmt(max(cible - n_prod, 0))} restants · {n_saisies} fiches saisies"
             + (f" · <b>{n_extra} en double</b>" if n_extra > 0 else "")},
     {"lab": "Refus d'engagement", "ico": "✋", "v": n_refus, "p": _r(n_refus, n_prod), "cls": "red",
      "sub": f"{_r(n_refus, n_prod):.0f} % des enquêtés"},
     {"lab": "Engagement du ménage", "ico": "🤝", "v": n_engages, "p": _r(n_engages, n_prod),
      "sub": f"{_r(n_engages, n_prod):.0f} % des enquêtés"},
     {"lab": "Inspection CSSVD", "ico": "🔍", "v": n_fiche, "p": _r(n_fiche, n_prod),
-     "sub": f"{_r(n_fiche, n_prod):.0f} % · {n_signes} avec signes de swollen shoot"},
+     "sub": f"{_r(n_fiche, n_prod):.0f} % des enquêtés · {n_signes} avec signes de swollen shoot"},
     {"lab": "Promesse de taille", "ico": "✂️", "v": n_promesse, "p": _r(n_promesse, n_prod), "cls": "amber",
      "sub": f"{_r(n_promesse, n_prod):.0f} % des enquêtés"},
 ], cible))
