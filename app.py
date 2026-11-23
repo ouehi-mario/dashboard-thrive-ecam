@@ -2368,6 +2368,7 @@ def doublons_table(d: pd.DataFrame) -> pd.DataFrame:
         rows.append({
             "Code planteur": code, "Nom producteur": g["prod_nom"].iloc[0],
             "Coach(s)": ", ".join(sorted(g["agent_id"].dropna().unique())),
+            "Nom du coach": ", ".join(sorted(g["agent_nom"].dropna().unique())),
             "Parcelle(s)": ", ".join(sorted(g["plantation"].dropna().unique())),
             "Nb fiches": len(g),
             "Envoyées à Kobo le": ", ".join(g["date"].dt.strftime("%d/%m %H:%M").dropna()),
@@ -2378,9 +2379,16 @@ def doublons_table(d: pd.DataFrame) -> pd.DataFrame:
 
 if n_extra > 0:
     dbl = doublons_table(df)
+    # coach(s) concerné(s) : « COACH007 KOUAKOU N'GUESSAN EUGENE (3) »
+    _dup = df[df["prod_code"].notna() & df["prod_code"].duplicated(keep=False)]
+    _par_coach = (_dup.groupby(["agent_id", "agent_nom"], dropna=False)["prod_code"].nunique()
+                  .sort_values(ascending=False))
+    coachs_dbl = ", ".join(
+        f"{cid if pd.notna(cid) else '?'} {cnom if pd.notna(cnom) else ''}".strip() + (f" ({n})" if len(_par_coach) > 1 else "")
+        for (cid, cnom), n in _par_coach.items())
     with st.container(key="card_doublons"):
         with st.expander(f"⚠ {len(dbl)} producteur(s) saisi(s) sur plusieurs fiches — {n_extra} fiche(s) en trop "
-                         f"(comptés une seule fois dans les compteurs)"):
+                         f"(comptés une seule fois dans les compteurs) · coach : {coachs_dbl}"):
             st.caption("Cause habituelle : le coach a rempli un formulaire séparé pour chaque document "
                        "(fiche CSSVD, promesse de taille…) au lieu d'un seul formulaire par producteur. "
                        "Les informations des différentes fiches sont regroupées pour ces producteurs. "
