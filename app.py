@@ -1529,6 +1529,22 @@ def _gps(s: pd.Series) -> tuple[pd.Series, pd.Series]:
     return _num(parts[0]), _num(parts[1])
 
 
+COACH_PAT = ("coach", "agent", "enqueteur", "technicien", "collecteur", "animateur")
+
+
+def _coach(raw: pd.DataFrame) -> pd.Series:
+    """Coach de la fiche (ID et/ou nom), si une colonne coach / agent / enquêteur existe dans le fichier."""
+    cols = [c for c in raw.columns if any(k in _norm(c) for k in COACH_PAT) and "contact" not in _norm(c)
+            and "tel" not in _norm(c).split()]
+    if not cols:
+        return pd.Series(pd.NA, index=raw.index, dtype="string")
+    parts = [_txt(raw[c]) for c in cols[:2]]  # ex. « ID coach » + « Nom coach »
+    out = parts[0]
+    for x in parts[1:]:
+        out = (out.fillna("") + " " + x.fillna("")).str.strip()
+    return out.mask(out == "")
+
+
 def _base(raw: pd.DataFrame, date_col: str) -> pd.DataFrame:
     d = pd.DataFrame(index=raw.index)
     d["code"] = _txt(_col(raw, "Code Producteur"))
@@ -1538,6 +1554,7 @@ def _base(raw: pd.DataFrame, date_col: str) -> pd.DataFrame:
     d["date"] = pd.to_datetime(_col(raw, date_col), errors="coerce")
     d["synchro"] = pd.to_datetime(_col(raw, "Synchro le"), errors="coerce")
     d["lat"], d["lon"] = _gps(_col(raw, "Position GPS"))
+    d["coach"] = _coach(raw)
     return d
 
 
@@ -1667,9 +1684,16 @@ def upas_quality(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame) -> p
     """Contrôle de la règle 1 producteur = 1 engagement = 1 inspection = 1 promesse."""
     files = {"Engagements": eng, "Inspections": insp, "Promesses": prom}
     rows = []
+    # coach(s) de chaque producteur, fichier par fichier
+    coachs = {f: (t.dropna(subset=["code", "coach"]).groupby("code")["coach"]
+                  .agg(lambda s: ", ".join(sorted(s.unique()))).to_dict() if "coach" in t else {})
+              for f, t in files.items()}
 
     def add(kind, code, fichier, detail):
-        rows.append({"Anomalie": kind, "Code producteur": code, "Fichier(s)": fichier, "Détail": detail})
+        names = [coachs[f].get(code) for f in files if f in fichier]
+        coach = ", ".join(dict.fromkeys(n for n in names if n))
+        rows.append({"Anomalie": kind, "Code producteur": code, "Coach": coach or None,
+                     "Fichier(s)": fichier, "Détail": detail})
 
     # 0) fiches sans code producteur (impossibles à relier aux autres fichiers)
     for fname, t in files.items():
@@ -1719,7 +1743,8 @@ def upas_quality(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame) -> p
         if declare.get(code) == False:  # noqa: E712
             add("Déclaration incohérente", code, "Promesses",
                 "« inspection CSSVD réalisée » = Non dans la promesse, alors qu'une inspection existe")
-    return pd.DataFrame(rows, columns=["Anomalie", "Code producteur", "Fichier(s)", "Détail"])
+    out = pd.DataFrame(rows, columns=["Anomalie", "Code producteur", "Coach", "Fichier(s)", "Détail"])
+    return out if out["Coach"].notna().any() else out.drop(columns="Coach")
 
 
 def dedupe(t: pd.DataFrame) -> pd.DataFrame:
@@ -1821,8 +1846,14 @@ def render_upas(page: str, pop) -> None:
 
     if not anomalies.empty:
         resume = " · ".join(f"{n} {k.lower()}" for k, n in anomalies["Anomalie"].value_counts().items())
+        if "Coach" in anomalies:
+            par_coach = (anomalies["Coach"].dropna().str.split(", ").explode().value_counts())
+            resume += " · coach(s) : " + ", ".join(f"{c} ({n})" for c, n in par_coach.items())
         with st.container(key="card_doublons"):
             with st.expander(f"⚠ Contrôle qualité UPAS : {len(anomalies)} anomalie(s) — {resume}"):
+                if "Coach" not in anomalies:
+                    st.caption("ℹ Les fichiers UPAS ne contiennent pas le nom du coach : ajoutez une colonne "
+                               "« Coach » (ou « Agent », « Enquêteur ») à l'export pour l'afficher ici.")
                 st.caption("Règle attendue : 1 producteur = 1 engagement → 1 inspection CSSVD → 1 promesse de taille, "
                            "dans cet ordre (l'inspection précède la promesse). "
                            "Les doublons sont comptés une seule fois dans le tableau de bord. "
