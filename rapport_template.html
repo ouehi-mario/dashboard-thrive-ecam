@@ -230,10 +230,10 @@ const COOPS = {
       const n = r.length, eng = cnt(r, x => x.eng === true), ref = cnt(r, x => x.eng === false);
       const fi = cnt(r, x => x.fiche), pr = cnt(r, x => x.prom), cs = cnt(r, x => x.cssvd === true);
       return [
-        {lab: 'Producteurs enquêtés', ico: '👥', v: n, p: pct(n, OBJ), sub: `${pct(n, OBJ)} % de l'objectif · ${fr(OBJ - n > 0 ? OBJ - n : 0)} restants`, hero: true},
+        {lab: 'Producteurs enquêtés', ico: '👥', v: n, p: pct(n, OBJ), sub: `${fr(OBJ - n > 0 ? OBJ - n : 0)} restants · ${DATA.ecam_fiches} fiches saisies`, hero: true},
         {lab: "Refus d'engagement", ico: '✋', v: ref, p: pct(ref, n), sub: `${pct(ref, n)} % des enquêtés`, cls: 'red'},
         {lab: 'Engagement du ménage', ico: '🤝', v: eng, p: pct(eng, n), sub: `${pct(eng, n)} % des enquêtés`},
-        {lab: 'Inspection CSSVD', ico: '🔍', v: fi, p: pct(fi, n), sub: `${cs} avec signes de swollen shoot`},
+        {lab: 'Inspection CSSVD', ico: '🔍', v: fi, p: pct(fi, n), sub: `${pct(fi, n)} % des enquêtés · ${cs} avec signes de swollen shoot`},
         {lab: 'Promesse de taille', ico: '✂️', v: pr, p: pct(pr, n), sub: `${pct(pr, n)} % des enquêtés`, cls: 'amber'},
       ];
     },
@@ -254,7 +254,7 @@ const COOPS = {
       const n = r.length, e = cnt(r, x => x.eng), i = cnt(r, x => x.insp), p = cnt(r, x => x.prom);
       const c = cnt(r, x => x.eng && x.insp && x.prom), bad = cnt(r, x => x.prom && !x.insp);
       return [
-        {lab: 'Producteurs suivis', ico: '👥', v: n, p: pct(n, OBJ), sub: `${pct(n, OBJ)} % de l'objectif · ${fr(OBJ - n > 0 ? OBJ - n : 0)} restants`, hero: true},
+        {lab: 'Producteurs suivis', ico: '👥', v: n, p: pct(n, OBJ), sub: `${fr(OBJ - n > 0 ? OBJ - n : 0)} restants pour atteindre l'objectif`, hero: true},
         {lab: 'Engagement du ménage', ico: '🤝', v: e, p: pct(e, n), sub: `${pct(e, n)} % des suivis`},
         {lab: 'Inspection CSSVD', ico: '🔍', v: i, p: pct(i, e), sub: `${pct(i, e)} % des engagés`},
         {lab: 'Promesse de taille', ico: '✂️', v: p, p: pct(p, i), sub: `${pct(p, i)} % des inspectés${bad ? ` · ${bad} sans inspection` : ''}`, cls: 'amber'},
@@ -306,8 +306,9 @@ function timeline(id, pts, label) {
 const rows = () => DATA[S.coop].filter(x => S.sec === 'all' || x.section === S.sec);
 
 function ring(p, big) {
+  const txt = p > 0 && p < 10 ? p.toFixed(1).replace('.', ',') : Math.round(p);
   const R = 26, Cc = 2 * Math.PI * R, off = Cc * (1 - Math.min(p, 100) / 100);
-  return `<svg class="ring" viewBox="0 0 64 64"><circle class="tr" cx="32" cy="32" r="${R}"/><circle class="pr" cx="32" cy="32" r="${R}" stroke-dasharray="${Cc}" stroke-dashoffset="${Cc}" data-off="${off}"/><text x="32" y="32">${p}%</text></svg>`;
+  return `<svg class="ring" viewBox="0 0 64 64"><circle class="tr" cx="32" cy="32" r="${R}"/><circle class="pr" cx="32" cy="32" r="${R}" stroke-dasharray="${Cc}" stroke-dashoffset="${Cc}" data-off="${off}"/><text x="32" y="32">${txt}%</text></svg>`;
 }
 function countUp(el, to) {
   const t0 = performance.now(), d = 650;
@@ -333,7 +334,7 @@ function renderKpis(r) {
   $('kpis').innerHTML = COOPS[S.coop].kpis(r).map(k => `
     <div class="card kpi ${k.hero ? 'hero' : ''} ${k.cls || ''}">
       <div class="lab"><span class="ico">${k.ico}</span>${k.lab}</div>
-      <div class="row"><div class="val"><span data-v="${k.v}">0</span>${k.hero ? `<small>/ ${fr(OBJ)}</small>` : ''}</div>${ring(k.p)}</div>
+      <div class="row"><div class="val"><span data-v="${k.v}">0</span><small>/ ${fr(OBJ)}</small></div>${ring(OBJ ? k.v / OBJ * 100 : 0)}</div>
       <div class="sub">${k.sub}</div>
     </div>`).join('');
   $('kpis').querySelectorAll('[data-v]').forEach(el => countUp(el, +el.dataset.v));
