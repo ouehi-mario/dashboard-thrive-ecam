@@ -2538,9 +2538,10 @@ elif page == "Coachs":
             .agg(producteurs=("prod_code", "nunique"),
                  engagement=("engagement", lambda s: s.astype(float).mean()),
                  cssvd=("cssvd", lambda s: s.astype(float).mean()),
+                 promesse=("doc_promesse", lambda s: (s == 1).mean()),
                  gps=("lat", lambda s: s.notna().mean())))
     perf = (activite.join(taux, how="outer").reset_index()
-            [["agent_id", "agent_nom", "fiches", "producteurs", "engagement", "cssvd", "gps", "derniere"]]
+            [["agent_id", "agent_nom", "fiches", "producteurs", "engagement", "cssvd", "promesse", "gps", "derniere"]]
             .sort_values("fiches", ascending=False))
     c1, c2 = st.columns([1.2, 1], gap="medium")
     with c1, st.container(key="card_c_bar"):
@@ -2561,6 +2562,7 @@ elif page == "Coachs":
             "agent_id": "ID", "agent_nom": "Nom",
             "engagement": st.column_config.ProgressColumn("Engagement", format="percent", min_value=0, max_value=1),
             "cssvd": st.column_config.ProgressColumn("CSSVD détecté", format="percent", min_value=0, max_value=1),
+            "promesse": st.column_config.ProgressColumn("Promesse de taille", format="percent", min_value=0, max_value=1),
             "gps": st.column_config.ProgressColumn("GPS renseigné", format="percent", min_value=0, max_value=1),
             "derniere": st.column_config.DatetimeColumn("Dernière fiche", format="DD/MM HH:mm"),
         })
