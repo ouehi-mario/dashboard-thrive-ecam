@@ -824,6 +824,79 @@ def read_bytes(data: bytes, name: str) -> pd.DataFrame:
     return pd.read_csv(io.BytesIO(data), sep=None, engine="python", encoding_errors="replace")
 
 
+@st.cache_data(show_spinner=False, max_entries=4)
+def merge_forms(raw: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Fusionne les fiches Kobo d'un même producteur ET d'une même parcelle en UNE fiche, au format Kobo.
+
+    - options cochées (documents, symptômes) : réunies (case cochée si elle l'est sur au moins une fiche) ;
+      « Aucun autre document » est décoché dès qu'un document est présent ;
+    - réponses Oui / Non : « Oui » si au moins une fiche dit Oui ;
+    - début de saisie : le plus ancien ; autres colonnes : la valeur la plus récente renseignée
+      (photos et leurs liens compris) ;
+    - colonne « _fusion » : nombre de fiches fusionnées et leurs identifiants Kobo (_id).
+    Le fichier d'origine n'est pas modifié.
+    """
+    info = {"groupes": 0, "fiches": 0, "en_moins": 0}
+    cols = list(raw.columns)
+    c_code, c_plant = _find(cols, *SPEC["prod_code"]), _find(cols, *SPEC["plantation"])
+    if c_code is None or raw.empty:
+        return raw, info
+    code = raw[c_code].astype("string").str.strip()
+    plant = raw[c_plant].astype("string").str.strip().fillna("") if c_plant is not None else ""
+    key = code + "§" + plant
+    dup = code.notna() & key.duplicated(keep=False)
+    if not dup.any():
+        return raw, info
+    c_sub = next((c for c in cols if _norm(c) == "_submission_time"), None)
+    c_id = next((c for c in cols if _norm(c) == "_id"), None)
+    children = {c: p for c in cols for p in cols if p != c and c.startswith(p + "/")}  # options à choix multiples
+    parents = set(children.values())
+
+    def last(v: pd.Series):
+        v = v.dropna()
+        v = v[v.astype(str).str.strip() != ""]
+        return v.iloc[-1] if len(v) else np.nan
+
+    merged = []
+    for _, g in raw[dup].groupby(key[dup], sort=False):
+        if c_sub is not None:
+            g = g.iloc[pd.to_datetime(g[c_sub], errors="coerce").argsort(kind="stable")]
+        row = g.iloc[-1].copy()
+        for c in cols:
+            v = g[c]
+            nc = _norm(c)
+            if c in children:
+                row[c] = pd.to_numeric(v, errors="coerce").max()
+            elif nc == "start":
+                row[c] = v.dropna().min() if v.notna().any() else np.nan
+            elif nc in ("_id", "_uuid", "_index", "meta/rootuuid", "meta/instanceid", "_submission_time") or c in parents:
+                continue  # identifiants : ceux de la fiche la plus récente ; parents recalculés plus bas
+            else:
+                txt = v.dropna().astype(str).str.strip().str.lower()
+                if len(txt) and txt.isin(["oui", "non"]).all():
+                    row[c] = "Oui" if (txt == "oui").any() else "Non"
+                else:
+                    row[c] = last(v)
+        for p in parents:  # libellé de la question à choix multiples = options cochées
+            opts = [c for c, pp_ in children.items() if pp_ == p]
+            on = [c for c in opts if row[c] == 1]
+            aucun = [c for c in on if "aucun" in _norm(c)]
+            if aucun and len(on) > len(aucun):
+                for c in aucun:
+                    row[c] = 0
+                on = [c for c in on if c not in aucun]
+            if on:
+                row[p] = " ".join(c[len(p) + 1:] for c in on)
+        ids = ", ".join(str(x) for x in g[c_id]) if c_id is not None else ""
+        row["_fusion"] = f"{len(g)} fiches fusionnées" + (f" (_id {ids})" if ids else "")
+        merged.append(row)
+        info["groupes"] += 1
+        info["fiches"] += len(g)
+    out = pd.concat([raw[~dup], pd.DataFrame(merged)]).sort_index()
+    info["en_moins"] = info["fiches"] - info["groupes"]
+    return out, info
+
+
 @st.cache_data(show_spinner=False)
 def demo_data(n: int = 160, seed: int = 7) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
@@ -2179,7 +2252,10 @@ def offline_report_html(version: str, objectif: int = 1000) -> bytes:
     import json
 
     tz = "Africa/Abidjan"
-    df, _, source, _ = load()
+    df, raw0, source, _ = load()
+    n_saisies = len(df)
+    if raw0 is not df and merge_forms(raw0)[1]["groupes"]:
+        df = normalize(merge_forms(raw0)[0])  # fiches fusionnées, comme dans l'application
     parc = consolidate(df, ["prod_code", "plantation"])
     pp = consolidate(parc[parc["prod_code"].notna()], ["prod_code"])
     ecam = [{"code": r.prod_code, "section": r.section if pd.notna(r.section) else "Sans section",
@@ -2209,7 +2285,7 @@ def offline_report_html(version: str, objectif: int = 1000) -> bytes:
     upas_dates = pd.concat([eng["date"], insp["date"], prom["date"]]).dropna()
 
     payload = {
-        "ecam": ecam, "ecam_days": days, "ecam_fiches": int(len(df)), "ecam_dup": int(len(df) - len(pp)),
+        "ecam": ecam, "ecam_days": days, "ecam_fiches": int(n_saisies), "ecam_dup": int(n_saisies - len(df)),
         "ecam_demo": source == "Données de démonstration",
         "upas": upas, "upas_anomalies": int(n_anom), "objectif": int(objectif or 1000),
         "sym_names": {k: v[0] for k, v in SYMPTOMES.items()},
@@ -2266,6 +2342,12 @@ if coop == "UPAS":
     st.stop()
 
 df_all, raw, source, meta = load()
+# Fiches d'un même producteur + parcelle fusionnées en une seule (format Kobo) : base de tous les indicateurs.
+# Les fiches telles que saisies (df_saisie) servent uniquement au bandeau des doublons ; le fichier d'origine est intact.
+df_saisie_all = df_all
+raw_fus, fusion = (raw, {"groupes": 0, "fiches": 0, "en_moins": 0}) if raw is df_all else merge_forms(raw)
+if fusion["groupes"]:
+    df_all = normalize(raw_fus)
 watch_updates(tuple(COOP_SLOTS["ECAM"]), "data_version_ECAM")
 
 with pop:
@@ -2287,13 +2369,18 @@ with pop:
     st.divider()
     admin_panel()
 
-df = df_all.copy()
-if f_sec:
-    df = df[df["section"].isin(f_sec)]
-if f_coach:
-    df = df[df["agent_id"].isin(f_coach)]
-if isinstance(f_dates, (tuple, list)) and len(f_dates) == 2:
-    df = df[df["date"].isna() | df["date"].dt.date.between(f_dates[0], f_dates[1])]
+def _filtre(d: pd.DataFrame) -> pd.DataFrame:
+    if f_sec:
+        d = d[d["section"].isin(f_sec)]
+    if f_coach:
+        d = d[d["agent_id"].isin(f_coach)]
+    if isinstance(f_dates, (tuple, list)) and len(f_dates) == 2:
+        d = d[d["date"].isna() | d["date"].dt.date.between(f_dates[0], f_dates[1])]
+    return d
+
+
+df = _filtre(df_all.copy())               # fiches fusionnées → indicateurs
+df_saisie = _filtre(df_saisie_all.copy())  # fiches telles que saisies → bandeau des doublons
 
 if df.empty:
     st.warning("Aucune donnée pour ces filtres.")
@@ -2362,7 +2449,8 @@ cible = objectif or n_prod
 n_engages = n_prod_where(df["engagement"] == True)  # noqa: E712
 engages = set(df.loc[df["engagement"] == True, "prod_code"].dropna())  # noqa: E712
 n_refus = int(df.loc[(df["engagement"] == False) & ~df["prod_code"].isin(engages), "prod_code"].nunique())  # noqa: E712
-n_extra = n_fiches - n_prod
+n_saisies = len(df_saisie)
+n_extra = n_saisies - n_fiches  # fiches en trop, fusionnées
 n_fiche, n_promesse = n_prod_where(df["doc_fiche"] == 1), n_prod_where(df["doc_promesse"] == 1)
 n_signes = n_prod_where(df["cssvd"] == True)  # noqa: E712
 
@@ -2373,7 +2461,7 @@ def _r(a, b):
 
 html(kpi_cards([
     {"lab": "Producteurs enquêtés", "ico": "👥", "v": n_prod, "p": _r(n_prod, cible),
-     "sub": f"{_r(n_prod, cible):.0f} % de l'objectif · {n_fiches} fiches saisies"
+     "sub": f"{_r(n_prod, cible):.0f} % de l'objectif · {n_saisies} fiches saisies"
             + (f" · <b>{n_extra} en double</b>" if n_extra > 0 else "")},
     {"lab": "Refus d'engagement", "ico": "✋", "v": n_refus, "p": _r(n_refus, n_prod), "cls": "red",
      "sub": f"{_r(n_refus, n_prod):.0f} % des enquêtés"},
@@ -2409,9 +2497,9 @@ def doublons_table(d: pd.DataFrame) -> pd.DataFrame:
 
 
 if n_extra > 0:
-    dbl = doublons_table(df)
+    dbl = doublons_table(df_saisie)
     # coach(s) concerné(s) : « COACH007 KOUAKOU N'GUESSAN EUGENE (3) »
-    _dup = df[df["prod_code"].notna() & df["prod_code"].duplicated(keep=False)]
+    _dup = df_saisie[df_saisie["prod_code"].notna() & df_saisie["prod_code"].duplicated(keep=False)]
     _par_coach = (_dup.groupby(["agent_id", "agent_nom"], dropna=False)["prod_code"].nunique()
                   .sort_values(ascending=False))
     coachs_dbl = ", ".join(
@@ -2702,8 +2790,23 @@ elif page == "Carte":
 else:
     with st.container(key="card_raw"):
         html(f"<p class='card-title'>Données brutes · {source}</p>")
-        view = st.radio("Vue", ["Normalisée", "Export d'origine"], horizontal=True, label_visibility="collapsed")
-        data = df if view == "Normalisée" else raw.loc[raw.index.intersection(df.index)]
+        vues = ["Normalisée", "Fiches fusionnées (format Kobo)", "Export d'origine"]
+        view = st.radio("Vue", vues if fusion["groupes"] else [vues[0], vues[2]], horizontal=True,
+                        label_visibility="collapsed")
+        if view == vues[0]:
+            data = df
+        elif view == vues[1]:
+            data = raw_fus.loc[raw_fus.index.intersection(df.index)]
+            st.caption(f"🔗 {fusion['fiches']} fiches de {fusion['groupes']} producteur(s) fusionnées en "
+                       f"{fusion['groupes']} fiche(s) — colonne « _fusion ». C'est la base des indicateurs ; "
+                       "le fichier Kobo d'origine n'est pas modifié.")
+        else:
+            data = raw.loc[raw.index.intersection(df_saisie.index)]
         st.dataframe(data, width="stretch", height=560)
-        st.download_button("⬇ Télécharger (CSV)", data.to_csv(index=False, sep=";").encode("utf-8-sig"),
-                           file_name="cssvd_export.csv", mime="text/csv")
+        d1, d2 = st.columns(2)
+        d1.download_button("⬇ Télécharger (CSV)", data.to_csv(index=False, sep=";").encode("utf-8-sig"),
+                           file_name="cssvd_export.csv", mime="text/csv", width="stretch")
+        if view != vues[0]:
+            d2.download_button("⬇ Télécharger (Excel)", df_to_xlsx_bytes(data),
+                               file_name="ecam_fiches_fusionnees.xlsx" if view == vues[1] else "ecam_export_origine.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
