@@ -2333,13 +2333,16 @@ def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int
                        "ref": g["engagement"].apply(lambda s: int((s == False).sum())),  # noqa: E712
                        "fi": g["doc_fiche"].apply(lambda s: int((s == 1).sum())),
                        "pr": g["doc_promesse"].apply(lambda s: int((s == 1).sum())),
-                       "ss": g["cssvd"].apply(lambda s: int((s == True).sum()))}).reset_index()  # noqa: E712
+                       "ss": g["cssvd"].apply(lambda s: int((s == True).sum())),  # noqa: E712
+                       "sa": g["cssvd"].apply(lambda s: int((s == False).sum()))}).reset_index()  # noqa: E712
     bc = bc.sort_values("prod", ascending=False)
-    rows = [[P(r.agent_id), P(r.agent_nom), P(r.prod), P(r.eng), P(r.ref), P(r.fi), P(r.pr), P(r.ss)]
+    n_sain = int((pp["cssvd"] == False).sum())  # noqa: E712  parcelles inspectées sans signe de CSSVD
+    rows = [[P(r.agent_id), P(r.agent_nom), P(r.prod), P(r.eng), P(r.ref), P(r.fi), P(r.pr), P(r.ss), P(r.sa)]
             for r in bc.itertuples()]
-    rows.append([P("TOTAL"), P(""), P(n), P(n_eng), P(n_ref), P(n_fi), P(n_pr), P(n_ss)])
+    rows.append([P("TOTAL"), P(""), P(n), P(n_eng), P(n_ref), P(n_fi), P(n_pr), P(n_ss), P(n_sain)])
     t = table(["ID coach", "Nom du coach", "Producteurs", "Engagements", "Refus", "Inspections CSSVD",
-               "Promesses de taille", "Swollen shoot"], rows, [W * x for x in (.1, .26, .09, .1, .08, .13, .13, .11)])
+               "Promesses de taille", "Swollen shoot", "Sains"],
+              rows, [W * x for x in (.1, .24, .09, .1, .07, .12, .12, .1, .06)])
     t.setStyle(TableStyle([("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#dcebd5"))]))
     story += [Paragraph("Indicateurs par coach", st_h), t]
 
