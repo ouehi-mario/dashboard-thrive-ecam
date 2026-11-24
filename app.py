@@ -1918,6 +1918,18 @@ def render_upas(page: str, pop) -> None:
          "sub": f"{r(n_complet, n_suivis):.0f} % des suivis"},
     ], cible))
 
+    _filtres = " · ".join(x for x in [
+        f"sections : {', '.join(f_sec)}" if f_sec else "",
+        (f"période : {f_dates[0]:%d/%m/%Y} – {f_dates[1]:%d/%m/%Y}"
+         if isinstance(f_dates, (tuple, list)) and len(f_dates) == 2 else "")] if x) or "toutes les données"
+    _pb = st.columns([3, 1])[1]
+    _pb.download_button("📄 Rapport PDF des indicateurs",
+                        lambda: upas_pdf(eng, insp, prom, suivi, anomalies, objectif, _filtres, n_lignes),
+                        file_name=f"rapport_indicateurs_UPAS_{pd.Timestamp.now(tz='Africa/Abidjan'):%Y-%m-%d}.pdf",
+                        mime="application/pdf", width="stretch", key="pdf_upas",
+                        help="Indicateurs, avancement par section, producteurs à relancer, signes de CSSVD, état des "
+                             "parcelles, contrôle qualité. Tient compte des filtres de ⚙ Paramètres.")
+
     if not anomalies.empty:
         resume = " · ".join(f"{n} {k.lower()}" for k, n in anomalies["Anomalie"].value_counts().items())
         if "Coach" in anomalies:
@@ -2371,6 +2383,165 @@ def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int
     buf = io.BytesIO()
     SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=1.5 * cm, rightMargin=1.5 * cm, topMargin=1.3 * cm,
                       bottomMargin=1.5 * cm, title="Rapport des indicateurs ECAM", author="Thrive-Track"
+                      ).build(story, onFirstPage=footer, onLaterPages=footer)
+    return buf.getvalue()
+
+
+def upas_pdf(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame, suivi: pd.DataFrame, anomalies: pd.DataFrame,
+             objectif: int, filtres: str, n_lignes: dict) -> bytes:
+    """Rapport PDF des indicateurs UPAS (parcours Engagement → Inspection CSSVD → Promesse de taille)."""
+    from xml.sax.saxutils import escape
+
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    VERT, VERT_F, CLAIR, GRIS = (colors.HexColor(c) for c in ("#2e7d32", "#1d3622", "#eef6ea", "#6a7b69"))
+    ss = getSampleStyleSheet()
+    st_t = ParagraphStyle("t", parent=ss["Title"], fontName="Helvetica-Bold", fontSize=20, textColor=VERT_F,
+                          spaceAfter=2, alignment=0)
+    st_h = ParagraphStyle("h", parent=ss["Heading2"], fontName="Helvetica-Bold", fontSize=13, textColor=VERT_F,
+                          spaceBefore=12, spaceAfter=6)
+    st_n = ParagraphStyle("n", parent=ss["Normal"], fontName="Helvetica", fontSize=8.5, leading=10.5)
+    st_m = ParagraphStyle("m", parent=st_n, textColor=GRIS)
+    st_c = ParagraphStyle("c", parent=st_n, alignment=TA_CENTER)
+    st_sc = ParagraphStyle("sc", parent=st_m, alignment=TA_CENTER)
+    st_th = ParagraphStyle("th", parent=st_n, textColor=colors.white)
+    st_big = ParagraphStyle("b", parent=st_n, fontName="Helvetica-Bold", fontSize=19, leading=22, alignment=TA_CENTER,
+                            textColor=VERT_F)
+
+    def P(x, style=st_n):
+        if x is None or x is pd.NA or (isinstance(x, float) and np.isnan(x)):
+            x = ""
+        return Paragraph(escape(str(x)), style)
+
+    def table(head, rows, widths, total=False):
+        t = Table([[Paragraph(f"<b>{escape(h)}</b>", st_th) for h in head]] + rows, colWidths=widths, repeatRows=1)
+        style = [("BACKGROUND", (0, 0), (-1, 0), VERT), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                 ("LINEBELOW", (0, 0), (-1, -1), .25, colors.HexColor("#d9e6d4")),
+                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, CLAIR]),
+                 ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]
+        if total:
+            style.append(("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#dcebd5")))
+        t.setStyle(TableStyle(style))
+        return t
+
+    def d(x):
+        return x.strftime("%d/%m/%Y") if pd.notna(x) else ""
+
+    def pc(a, b):
+        return f"{a / b * 100:.0f} %" if b else "–"
+
+    n = len(suivi)
+    obj = objectif or n or 1
+    n_eng, n_insp, n_prom = eng["code"].nunique(), insp["code"].nunique(), prom["code"].nunique()
+    n_comp = int(suivi["complet"].sum()) if n else 0
+    n_bad = int((suivi["promesse"] & ~suivi["inspecte"]).sum()) if n else 0
+    sig = insp[insp["signes"] == True]  # noqa: E712
+    n_sig, n_obs = sig["code"].nunique(), int(insp.loc[insp["signes"].notna(), "code"].nunique())
+
+    W = landscape(A4)[0] - 3 * cm
+    story = [Paragraph("Rapport des indicateurs — Coopérative UPAS", st_t),
+             P(f"Suivi CSSVD · parcours Engagement → Inspection CSSVD → Promesse de taille · généré le "
+               f"{pd.Timestamp.now(tz='Africa/Abidjan'):%d/%m/%Y à %H:%M} · {filtres}", st_m), Spacer(1, 10)]
+
+    # 1) indicateurs clés
+    p_obj = n / obj * 100
+    tiles = [("Producteurs suivis", n, (f"{p_obj:.1f}".replace(".", ",") if 0 < p_obj < 10 else f"{p_obj:.0f}")
+              + f" % de l'objectif ({fmt(obj)})"),
+             ("Engagements du ménage", n_eng, f"{pc(n_eng, n)} des suivis"),
+             ("Inspections CSSVD", n_insp, f"{pc(n_insp, n_eng)} des engagés"),
+             ("Promesses de taille", n_prom, f"{pc(n_prom, n_insp)} des inspectés"
+              + (f" · {n_bad} sans inspection" if n_bad else "")),
+             ("Parcours complet", n_comp, f"{pc(n_comp, n)} des suivis"),
+             ("Swollen shoot (CSSVD)", n_sig, f"parcelles avec signes sur {n_obs} inspectée(s)")]
+    kt = Table([[Paragraph(f"<b>{fmt(v)}</b>", st_big) for _, v, _ in tiles],
+                [P(lab, st_c) for lab, _, _ in tiles],
+                [P(sub, st_sc) for _, _, sub in tiles]], colWidths=[W / 6] * 6)
+    kt.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), CLAIR),
+                            ("BOX", (0, 0), (-1, -1), .5, colors.HexColor("#cfe0c8")),
+                            ("LINEAFTER", (0, 0), (-2, -1), 1, colors.white),
+                            ("TOPPADDING", (0, 0), (-1, 0), 8), ("BOTTOMPADDING", (0, -1), (-1, -1), 8)]))
+    dbl = " · ".join(f"{lab} : {n_lignes[k]} fiches" for k, lab in (("eng", "engagements"), ("insp", "inspections"),
+                                                                    ("prom", "promesses")))
+    story += [kt, Spacer(1, 4), P(f"Une fiche par code producteur et par fichier (doublons retirés) · {dbl}.", st_m)]
+
+    # 2) avancement par section
+    if n:
+        g = suivi.assign(section=suivi["section"].fillna("Sans section")).groupby("section")
+        sec = pd.DataFrame({"prod": g.size(), "eng": g["engage"].sum(), "insp": g["inspecte"].sum(),
+                            "prom": g["promesse"].sum(), "comp": g["complet"].sum()}).astype(int).reset_index()
+        rows = [[P(r.section), P(r.prod), P(r.eng), P(r.insp), P(r.prom), P(r.comp), P(pc(r.comp, r.prod))]
+                for r in sec.itertuples()]
+        rows.append([P("TOTAL"), P(n), P(int(suivi["engage"].sum())), P(int(suivi["inspecte"].sum())),
+                     P(int(suivi["promesse"].sum())), P(n_comp), P(pc(n_comp, n))])
+        story += [Paragraph("Avancement par section", st_h),
+                  table(["Section", "Producteurs", "Engagés", "Inspectés", "Promesses", "Parcours complet",
+                         "% complet"], rows, [W * x for x in (.22, .12, .12, .12, .12, .16, .12)], total=True)]
+
+    # 3) producteurs à relancer
+    def relance(titre, mask, date_col, date_lab):
+        t = suivi[mask].sort_values(["section", "code"])
+        story.append(Paragraph(f"{titre} — {len(t)} producteur(s)", st_h))
+        if t.empty:
+            story.append(P("Aucun.", st_m))
+            return
+        rows = [[P(i), P(r.code), P(r.section), P(r.localite), P(d(getattr(r, date_col)))]
+                for i, r in enumerate(t.itertuples(), 1)]
+        story.append(table(["N°", "Code producteur", "Section", "Localité", date_lab], rows,
+                           [W * x for x in (.06, .22, .24, .28, .2)]))
+
+    if n:
+        relance("Inspection CSSVD à faire (engagés, pas encore inspectés)", suivi["engage"] & ~suivi["inspecte"],
+                "date_eng", "Engagé le")
+        relance("Promesse de taille à faire (inspectés, sans promesse)", suivi["inspecte"] & ~suivi["promesse"],
+                "date_insp", "Inspecté le")
+
+    # 4) parcelles avec signes de CSSVD
+    story.append(Paragraph(f"Producteurs et parcelles présentant des signes de CSSVD — {n_sig} producteur(s)", st_h))
+    if n_sig:
+        rows = [[P(i), P(r.code), P(r.parcelle), P(r.section), P(r.localite),
+                 P(" | ".join(x for x in (r.sympt_princ, r.sympt_sec) if pd.notna(x))),
+                 P("" if pd.isna(r.nb_foyers) else int(r.nb_foyers)), P(d(r.date))]
+                for i, r in enumerate(sig.sort_values(["section", "code"]).itertuples(), 1)]
+        story.append(table(["N°", "Code producteur", "Code parcelle", "Section", "Localité", "Symptômes observés",
+                            "Foyers", "Inspecté le"], rows, [W * x for x in (.04, .12, .12, .12, .12, .3, .07, .11)]))
+    else:
+        story.append(P(f"Aucun signe de swollen shoot observé sur les {n_obs} parcelle(s) inspectée(s).", st_m))
+
+    # 5) état des parcelles
+    etat = split_counts(insp["etat"]) if "etat" in insp else pd.Series(dtype=int)
+    if len(etat):
+        story.append(KeepTogether([Paragraph("État des parcelles inspectées", st_h),
+                                   table(["Observation", "Parcelles", "% des parcelles inspectées"],
+                                         [[P(k), P(int(v)), P(pc(int(v), n_insp))] for k, v in etat.items()],
+                                         [W * .45, W * .15, W * .25])]))
+
+    # 6) contrôle qualité
+    story.append(Paragraph(f"Contrôle qualité des fichiers — {len(anomalies)} anomalie(s)", st_h))
+    if len(anomalies):
+        cols = [c for c in ["Anomalie", "Code producteur", "Coach", "Fichier(s)", "Détail"] if c in anomalies]
+        w = {"Anomalie": .18, "Code producteur": .12, "Coach": .15, "Fichier(s)": .15, "Détail": .4}
+        tot = sum(w[c] for c in cols)
+        rows = [[P(r[c]) for c in cols] for _, r in anomalies.iterrows()]
+        story.append(table(cols, rows, [W * w[c] / tot for c in cols]))
+    else:
+        story.append(P("Aucune anomalie : 1 producteur = 1 engagement → 1 inspection → 1 promesse.", st_m))
+
+    def footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7.5)
+        canvas.setFillColor(GRIS)
+        canvas.drawString(1.5 * cm, 1 * cm, "Thrive-Track — Rapport des indicateurs UPAS")
+        canvas.drawRightString(landscape(A4)[0] - 1.5 * cm, 1 * cm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    buf = io.BytesIO()
+    SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=1.5 * cm, rightMargin=1.5 * cm, topMargin=1.3 * cm,
+                      bottomMargin=1.5 * cm, title="Rapport des indicateurs UPAS", author="Thrive-Track"
                       ).build(story, onFirstPage=footer, onLaterPages=footer)
     return buf.getvalue()
 
