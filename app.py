@@ -2265,7 +2265,7 @@ def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int
     st_c = ParagraphStyle("c", parent=st_n, alignment=TA_CENTER)
     st_sc = ParagraphStyle("sc", parent=st_m, alignment=TA_CENTER)
     st_th = ParagraphStyle("th", parent=st_n, textColor=colors.white)
-    st_big = ParagraphStyle("b", parent=st_n, fontName="Helvetica-Bold", fontSize=19, leading=22, alignment=TA_CENTER,
+    st_big = ParagraphStyle("b", parent=st_n, fontName="Helvetica-Bold", fontSize=18, leading=22, alignment=TA_CENTER,
                             textColor=VERT_F)
 
     def P(x, style=st_n):
@@ -2314,10 +2314,12 @@ def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int
              ("Engagements du ménage", n_eng, f"{pc(n_eng, n)} des enquêtés"),
              ("Inspections CSSVD", n_fi, f"{pc(n_fi, n)} des enquêtés"),
              ("Promesses de taille", n_pr, f"{pc(n_pr, n)} des enquêtés"),
-             ("Swollen shoot (CSSVD)", n_ss, f"producteurs avec signes · {len(sym)} plantation(s) avec symptômes")]
+             ("Swollen shoot (CSSVD)", n_ss, f"avec signes · {len(sym)} plantation(s)"),
+             ("Sains", int((pp["cssvd"] == False).sum()),  # noqa: E712
+              f"sans signe de CSSVD · {pc(int((pp['cssvd'] == False).sum()), n_fi)} des inspectés")]
     kt = Table([[Paragraph(f"<b>{fmt(v)}</b>", st_big) for _, v, _ in tiles],
                 [P(lab, st_c) for lab, _, _ in tiles],
-                [P(sub, st_sc) for _, _, sub in tiles]], colWidths=[W / 6] * 6)
+                [P(sub, st_sc) for _, _, sub in tiles]], colWidths=[W / len(tiles)] * len(tiles))
     kt.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), CLAIR),
                             ("BOX", (0, 0), (-1, -1), .5, colors.HexColor("#cfe0c8")),
                             ("LINEAFTER", (0, 0), (-2, -1), 1, colors.white),
@@ -2413,7 +2415,7 @@ def upas_pdf(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame, suivi: p
     st_c = ParagraphStyle("c", parent=st_n, alignment=TA_CENTER)
     st_sc = ParagraphStyle("sc", parent=st_m, alignment=TA_CENTER)
     st_th = ParagraphStyle("th", parent=st_n, textColor=colors.white)
-    st_big = ParagraphStyle("b", parent=st_n, fontName="Helvetica-Bold", fontSize=19, leading=22, alignment=TA_CENTER,
+    st_big = ParagraphStyle("b", parent=st_n, fontName="Helvetica-Bold", fontSize=18, leading=22, alignment=TA_CENTER,
                             textColor=VERT_F)
 
     def P(x, style=st_n):
@@ -2460,10 +2462,11 @@ def upas_pdf(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame, suivi: p
              ("Promesses de taille", n_prom, f"{pc(n_prom, n_insp)} des inspectés"
               + (f" · {n_bad} sans inspection" if n_bad else "")),
              ("Parcours complet", n_comp, f"{pc(n_comp, n)} des suivis"),
-             ("Swollen shoot (CSSVD)", n_sig, f"parcelles avec signes sur {n_obs} inspectée(s)")]
+             ("Swollen shoot (CSSVD)", n_sig, f"parcelles avec signes sur {n_obs} inspectée(s)"),
+             ("Sains", n_obs - n_sig, f"sans signe de CSSVD · {pc(n_obs - n_sig, n_obs)} des inspectés")]
     kt = Table([[Paragraph(f"<b>{fmt(v)}</b>", st_big) for _, v, _ in tiles],
                 [P(lab, st_c) for lab, _, _ in tiles],
-                [P(sub, st_sc) for _, _, sub in tiles]], colWidths=[W / 6] * 6)
+                [P(sub, st_sc) for _, _, sub in tiles]], colWidths=[W / len(tiles)] * len(tiles))
     kt.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), CLAIR),
                             ("BOX", (0, 0), (-1, -1), .5, colors.HexColor("#cfe0c8")),
                             ("LINEAFTER", (0, 0), (-2, -1), 1, colors.white),
