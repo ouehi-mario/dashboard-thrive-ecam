@@ -2228,6 +2228,152 @@ def consolidate(d: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
 
 
 
+
+# ----------------------------------------------------------------------------
+# Rapport PDF des indicateurs ECAM (téléchargeable, généré à la demande avec les filtres en cours)
+# ----------------------------------------------------------------------------
+def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int, filtres: str, source: str) -> bytes:
+    from xml.sax.saxutils import escape
+
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    VERT, VERT_F, CLAIR, GRIS, ROUGE = (colors.HexColor(c) for c in ("#2e7d32", "#1d3622", "#eef6ea", "#6a7b69", "#c0504d"))
+    ss = getSampleStyleSheet()
+    st_t = ParagraphStyle("t", parent=ss["Title"], fontName="Helvetica-Bold", fontSize=20, textColor=VERT_F,
+                          spaceAfter=2, alignment=0)
+    st_h = ParagraphStyle("h", parent=ss["Heading2"], fontName="Helvetica-Bold", fontSize=13, textColor=VERT_F,
+                          spaceBefore=12, spaceAfter=6)
+    st_n = ParagraphStyle("n", parent=ss["Normal"], fontName="Helvetica", fontSize=8.5, leading=10.5)
+    st_m = ParagraphStyle("m", parent=st_n, textColor=GRIS)
+    st_c = ParagraphStyle("c", parent=st_n, alignment=TA_CENTER)
+    st_sc = ParagraphStyle("sc", parent=st_m, alignment=TA_CENTER)
+    st_th = ParagraphStyle("th", parent=st_n, textColor=colors.white)
+    st_big = ParagraphStyle("b", parent=st_n, fontName="Helvetica-Bold", fontSize=19, leading=22, alignment=TA_CENTER,
+                            textColor=VERT_F)
+
+    def P(x, style=st_n):
+        if x is None or x is pd.NA or (isinstance(x, float) and np.isnan(x)):
+            x = ""
+        return Paragraph(escape(str(x)), style)
+
+    def table(head, rows, widths):
+        t = Table([[Paragraph(f"<b>{escape(h)}</b>", st_th) for h in head]] + rows, colWidths=widths, repeatRows=1)
+        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), VERT), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                               ("LINEBELOW", (0, 0), (-1, -1), .25, colors.HexColor("#d9e6d4")),
+                               ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, CLAIR]),
+                               ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
+        return t
+
+    def coach(r):
+        return " ".join(str(x) for x in (r.agent_id, r.agent_nom) if pd.notna(x))
+
+    def d(x):
+        return x.strftime("%d/%m/%Y") if pd.notna(x) else ""
+
+    def pc(a, b):
+        return f"{a / b * 100:.0f} %" if b else "–"
+
+    n = len(pp)
+    obj = objectif or n or 1
+    refus = pp[pp["engagement"] == False].sort_values(["agent_id", "section", "prod_nom"])  # noqa: E712
+    n_ref, n_eng = len(refus), int((pp["engagement"] == True).sum())  # noqa: E712
+    n_fi, n_pr = int((pp["doc_fiche"] == 1).sum()), int((pp["doc_promesse"] == 1).sum())
+    n_ss = int((pp["cssvd"] == True).sum())  # noqa: E712  producteurs avec signes de swollen shoot
+    sym_cols = list(SYMPTOMES)
+    pl = parc[parc["prod_code"].notna()].copy()
+    pl["nb_sym"] = (pl[sym_cols] == 1).sum(axis=1)
+    sym = pl[(pl["nb_sym"] > 0) | (pl["cssvd"] == True)].sort_values(["section", "agent_id", "prod_nom"])  # noqa: E712
+
+    W = landscape(A4)[0] - 3 * cm
+    story = [Paragraph("Rapport des indicateurs — Coopérative ECAM", st_t),
+             P(f"Suivi CSSVD · généré le {pd.Timestamp.now(tz='Africa/Abidjan'):%d/%m/%Y à %H:%M} · "
+               f"données : {source} · {filtres}", st_m), Spacer(1, 10)]
+
+    # 1) indicateurs clés
+    p_obj = n / obj * 100
+    tiles = [("Producteurs enquêtés", n, (f"{p_obj:.1f}".replace(".", ",") if 0 < p_obj < 10 else f"{p_obj:.0f}")
+              + f" % de l'objectif ({fmt(obj)})"),
+             ("Refus d'engagement", n_ref, f"{pc(n_ref, n)} des enquêtés"),
+             ("Engagements du ménage", n_eng, f"{pc(n_eng, n)} des enquêtés"),
+             ("Inspections CSSVD", n_fi, f"{pc(n_fi, n)} des enquêtés"),
+             ("Promesses de taille", n_pr, f"{pc(n_pr, n)} des enquêtés"),
+             ("Swollen shoot (CSSVD)", n_ss, f"producteurs avec signes · {len(sym)} plantation(s) avec symptômes")]
+    kt = Table([[Paragraph(f"<b>{fmt(v)}</b>", st_big) for _, v, _ in tiles],
+                [P(lab, st_c) for lab, _, _ in tiles],
+                [P(sub, st_sc) for _, _, sub in tiles]], colWidths=[W / 6] * 6)
+    kt.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), CLAIR),
+                            ("BOX", (0, 0), (-1, -1), .5, colors.HexColor("#cfe0c8")),
+                            ("LINEAFTER", (0, 0), (-2, -1), 1, colors.white),
+                            ("TOPPADDING", (0, 0), (-1, 0), 8), ("BOTTOMPADDING", (0, -1), (-1, -1), 8)]))
+    story += [kt, Spacer(1, 4),
+              P(f"Calculs par code producteur (les fiches d'un même producteur sont fusionnées) : "
+                f"{n_saisies} fiches saisies pour {n} producteurs.", st_m)]
+
+    # 2) indicateurs par coach
+    g = pp.groupby(["agent_id", "agent_nom"], dropna=False)
+    bc = pd.DataFrame({"prod": g.size(),
+                       "eng": g["engagement"].apply(lambda s: int((s == True).sum())),  # noqa: E712
+                       "ref": g["engagement"].apply(lambda s: int((s == False).sum())),  # noqa: E712
+                       "fi": g["doc_fiche"].apply(lambda s: int((s == 1).sum())),
+                       "pr": g["doc_promesse"].apply(lambda s: int((s == 1).sum())),
+                       "ss": g["cssvd"].apply(lambda s: int((s == True).sum()))}).reset_index()  # noqa: E712
+    bc = bc.sort_values("prod", ascending=False)
+    rows = [[P(r.agent_id), P(r.agent_nom), P(r.prod), P(r.eng), P(r.ref), P(r.fi), P(r.pr), P(r.ss)]
+            for r in bc.itertuples()]
+    rows.append([P("TOTAL"), P(""), P(n), P(n_eng), P(n_ref), P(n_fi), P(n_pr), P(n_ss)])
+    t = table(["ID coach", "Nom du coach", "Producteurs", "Engagements", "Refus", "Inspections CSSVD",
+               "Promesses de taille", "Swollen shoot"], rows, [W * x for x in (.1, .26, .09, .1, .08, .13, .13, .11)])
+    t.setStyle(TableStyle([("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#dcebd5"))]))
+    story += [Paragraph("Indicateurs par coach", st_h), t]
+
+    # 3) refus d'engagement
+    story.append(Paragraph(f"Refus d'engagement — {n_ref} producteur(s)", st_h))
+    if n_ref:
+        rows = [[P(i), P(r.prod_code), P(r.prod_nom), P(r.section), P(r.localite), P(r.agent_id), P(r.agent_nom),
+                 P(d(r.date))] for i, r in enumerate(refus.itertuples(), 1)]
+        story.append(table(["N°", "Code producteur", "Nom du producteur", "Section", "Localité", "ID coach",
+                            "Nom du coach", "Date"], rows, [W * x for x in (.04, .11, .22, .12, .12, .09, .2, .1)]))
+    else:
+        story.append(P("Aucun refus d'engagement.", st_m))
+
+    # 4) producteurs et plantations avec symptômes
+    story.append(Paragraph(f"Producteurs et plantations présentant des symptômes — {sym['prod_code'].nunique()} "
+                           f"producteur(s), {len(sym)} plantation(s)", st_h))
+    if len(sym):
+        rows = []
+        for i, r in enumerate(sym.itertuples(), 1):
+            lst = ", ".join(SYMPTOMES[k][0] for k in sym_cols if getattr(r, k) == 1) or "signes CSSVD (sans détail)"
+            rows.append([P(i), P(r.prod_code), P(r.prod_nom), P(r.plantation), P(r.section), P(coach(r)),
+                         P(lst), P(int(r.nb_sym))])
+        story.append(table(["N°", "Code producteur", "Nom du producteur", "Code plantation", "Section", "Coach",
+                            "Symptômes observés", "Nb"], rows, [W * x for x in (.04, .09, .16, .09, .17, .16, .25, .04)]))
+        cnt = sorted(((SYMPTOMES[k][0], int((pl[k] == 1).sum())) for k in sym_cols), key=lambda x: -x[1])
+        story.append(KeepTogether([Paragraph("Fréquence des symptômes", st_h),
+                                   table(["Symptôme", "Plantations", "% des plantations avec symptômes"],
+                                         [[P(a), P(b), P(pc(b, len(sym)))] for a, b in cnt],
+                                         [W * .4, W * .15, W * .25])]))
+    else:
+        story.append(P("Aucun symptôme observé.", st_m))
+
+    def footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7.5)
+        canvas.setFillColor(GRIS)
+        canvas.drawString(1.5 * cm, 1 * cm, "Thrive-Track — Rapport des indicateurs ECAM")
+        canvas.drawRightString(landscape(A4)[0] - 1.5 * cm, 1 * cm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    buf = io.BytesIO()
+    SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=1.5 * cm, rightMargin=1.5 * cm, topMargin=1.3 * cm,
+                      bottomMargin=1.5 * cm, title="Rapport des indicateurs ECAM", author="Thrive-Track"
+                      ).build(story, onFirstPage=footer, onLaterPages=footer)
+    return buf.getvalue()
+
 # ----------------------------------------------------------------------------
 # Rapport hors ligne : un fichier HTML autonome (ECAM + UPAS) à partager par WhatsApp / e-mail.
 # Uniquement des codes producteurs : ni nom, ni téléphone, ni position GPS.
@@ -2496,6 +2642,19 @@ def doublons_table(d: pd.DataFrame) -> pd.DataFrame:
         })
     return pd.DataFrame(rows)
 
+
+_filtres = " · ".join(x for x in [
+    f"sections : {', '.join(f_sec)}" if f_sec else "",
+    f"coachs : {', '.join(f_coach)}" if f_coach else "",
+    (f"période : {f_dates[0]:%d/%m/%Y} – {f_dates[1]:%d/%m/%Y}"
+     if isinstance(f_dates, (tuple, list)) and len(f_dates) == 2 else "")] if x) or "toutes les données"
+_pb = st.columns([3, 1])[1]
+_pb.download_button("📄 Rapport PDF des indicateurs",
+                    lambda: ecam_pdf(pp, parc, n_saisies, objectif, _filtres, source),
+                    file_name=f"rapport_indicateurs_ECAM_{pd.Timestamp.now(tz='Africa/Abidjan'):%Y-%m-%d}.pdf",
+                    mime="application/pdf", width="stretch", key="pdf_ecam",
+                    help="Indicateurs, tableau par coach, refus d'engagement avec le coach, producteurs et "
+                         "plantations avec symptômes. Tient compte des filtres de ⚙ Paramètres.")
 
 if n_extra > 0:
     dbl = doublons_table(df_saisie)
