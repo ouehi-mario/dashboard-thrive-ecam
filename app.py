@@ -125,17 +125,18 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
 .kp-dark { background: linear-gradient(135deg, var(--hero2), var(--hero)); border-color:transparent; }
 
 /* Compteurs x / objectif : cartes avec anneau (même design que le rapport hors ligne) */
-.kpis { display:grid; grid-template-columns: 1.35fr repeat(4, 1fr); gap:16px; margin: 18px 0 14px; }
+.kpis { display:grid; grid-template-columns: 1.3fr repeat(5, 1fr); gap:14px; margin: 18px 0 14px; }
 .kpi { position:relative; overflow:hidden; background:var(--card); border:1px solid var(--line); border-radius:22px;
        padding:18px 20px; box-shadow:var(--shadow); backdrop-filter:blur(18px); animation: rise .5s ease both; min-width:0; }
 .kpi .lab { font-size:.84rem; color:var(--muted); font-weight:500; display:flex; align-items:center; gap:8px; line-height:1.15; }
 .kpi .ico { width:30px; height:30px; border-radius:10px; display:grid; place-items:center; background:var(--soft); font-size:15px; flex:none; }
 .kpi .row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:12px; }
-.kpi .val { font-size:2.3rem; font-weight:600; letter-spacing:-1px; line-height:1; color:var(--ink); white-space:nowrap; }
+.kpi .val { font-size:2.05rem; font-weight:600; letter-spacing:-1px; line-height:1; color:var(--ink); white-space:nowrap; }
 .kpi .val small { font-size:.9rem; color:var(--muted); font-weight:400; letter-spacing:0; margin-left:3px; }
 .kpi .sub { font-size:.78rem; color:var(--muted); margin-top:10px; line-height:1.35; }
 .kpi .sub b { color:var(--red); }
-.ring { width:60px; height:60px; flex:none; }
+.ring { width:56px; height:56px; flex:none; }
+.kpi.sain .pr { stroke:var(--g1); }
 .ring circle { fill:none; stroke-width:7; }
 .ring .tr { stroke:var(--line); }
 .ring .pr { stroke:var(--g2); stroke-linecap:round; transform:rotate(-90deg); transform-origin:50% 50%; }
@@ -298,6 +299,7 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
   .stat .num { font-size: 2.8rem; }
   .kpis { grid-template-columns: repeat(3, 1fr); }
   .kpi.hero { grid-column: span 3; }
+  .kpi:last-child { grid-column: span 2; }
 }
 /* ===================== Version téléphone (< 768 px) ===================== */
 @media (max-width: 768px) {
@@ -327,6 +329,7 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
   /* compteurs / objectif : 1 grand + grille 2 x 2 */
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
   .kpi.hero { grid-column: 1 / -1; }
+  .kpi:last-child { grid-column: 1 / -1; }
   .kpi { padding: 14px; border-radius: 18px; }
   .kpi .val { font-size: 1.8rem; } .kpi.hero .val { font-size: 2.6rem; }
   .ring { width: 46px; height: 46px; } .kpi.hero .ring { width: 70px; height: 70px; }
@@ -1905,6 +1908,9 @@ def render_upas(page: str, pop) -> None:
     def r(a, b):
         return a / b * 100 if b else 0
 
+    n_obs_u = int(insp.loc[insp["signes"].notna(), "code"].nunique())
+    n_sains_u = n_obs_u - int(insp.loc[insp["signes"] == True, "code"].nunique())  # noqa: E712
+
     html(kpi_cards([
         {"lab": "Producteurs suivis", "ico": "👥", "v": n_suivis, "p": r(n_suivis, cible),
          "sub": f"{fmt(max(cible - n_suivis, 0))} restants pour atteindre l'objectif"},
@@ -1916,6 +1922,8 @@ def render_upas(page: str, pop) -> None:
          "sub": " · ".join(x for x in [f"{r(n_prom, n_insp):.0f} % des inspectés", note("prom")] if x)},
         {"lab": "Parcours complet", "ico": "🏁", "v": n_complet, "p": r(n_complet, n_suivis),
          "sub": f"{r(n_complet, n_suivis):.0f} % des suivis"},
+        {"lab": "Sains", "ico": "🌿", "v": n_sains_u, "p": r(n_sains_u, n_obs_u), "cls": "sain",
+         "sub": f"sans signe de CSSVD · {r(n_sains_u, n_obs_u):.0f} % des inspectés"},
     ], cible))
 
     _filtres = " · ".join(x for x in [
@@ -2777,6 +2785,7 @@ n_saisies = len(df_saisie)
 n_extra = n_saisies - n_fiches  # fiches en trop, fusionnées
 n_fiche, n_promesse = n_prod_where(df["doc_fiche"] == 1), n_prod_where(df["doc_promesse"] == 1)
 n_signes = n_prod_where(df["cssvd"] == True)  # noqa: E712
+n_sains = int((pp["cssvd"] == False).sum())  # noqa: E712  inspectés sans signe de CSSVD
 
 
 def _r(a, b):
@@ -2795,6 +2804,8 @@ html(kpi_cards([
      "sub": f"{_r(n_fiche, n_prod):.0f} % des enquêtés · {n_signes} avec signes de swollen shoot"},
     {"lab": "Promesse de taille", "ico": "✂️", "v": n_promesse, "p": _r(n_promesse, n_prod), "cls": "amber",
      "sub": f"{_r(n_promesse, n_prod):.0f} % des enquêtés"},
+    {"lab": "Sains", "ico": "🌿", "v": n_sains, "p": _r(n_sains, n_fiche), "cls": "sain",
+     "sub": f"sans signe de CSSVD · {_r(n_sains, n_fiche):.0f} % des inspectés"},
 ], cible))
 
 
