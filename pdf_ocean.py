@@ -264,15 +264,18 @@ def stacked_chart(labels: list[str], a: list[int], b: list[int], width: float, t
 
 def cumul_chart(weeks: list[str], series: list[tuple[str, list[int], object]], objectif: int, width: float,
                 title: str) -> Drawing:
-    """Courbes du cumul par semaine, avec la ligne de l'objectif."""
+    """Courbes du cumul (abscisse : date de soumission), avec la ligne de l'objectif."""
     h = 150
     d = Drawing(width, h)
     chart_title(d, title)
     legend(d, [(n, c, False) for n, _, c in series] + [(f"Objectif ({nb(objectif)})", VERT, True)], 0, h - 27)
     ch = HorizontalLineChart()
-    ch.x, ch.y, ch.width, ch.height = 34, 18, width - 44, h - 52
+    ch.x, ch.y, ch.width, ch.height = 34, 18, width - 34 - 34, h - 52  # marge à droite pour les valeurs
     ch.data = [s[1] for s in series] + [[objectif] * len(weeks)]
-    ch.categoryAxis.categoryNames = weeks
+    step = max(1, -(-len(weeks) // 9))  # au plus ~9 dates écrites sous l'axe
+    last = len(weeks) - 1
+    ch.categoryAxis.categoryNames = [w if i == last or (i % step == 0 and last - i >= max(step // 2, 1)) else ""
+                                     for i, w in enumerate(weeks)]
     ch.categoryAxis.labels.fontName, ch.categoryAxis.labels.fontSize = F, 7
     ch.categoryAxis.labels.fillColor = GRIS
     ch.categoryAxis.strokeColor = GRIS_L
@@ -294,18 +297,35 @@ def cumul_chart(weeks: list[str], series: list[tuple[str, list[int], object]], o
     ch.lines[k].strokeWidth = 1
     ch.lineLabelFormat = lambda v: ""  # valeurs posées à la main (sauf la ligne objectif)
     d.add(ch)
-    # valeurs du cumul sur chaque point
+    # valeurs : la 1re courbe sur chaque point (si peu de dates), et la dernière valeur de chaque courbe à droite,
+    # empilées sans chevauchement
     n = len(weeks)
     if n:
         vmax = ch.valueAxis.valueMax
-        for k_, (_, vals, c) in enumerate(series):
-            for j, v in enumerate(vals):
-                x = ch.x + ch.width * (j + .5) / n
-                y = ch.y + ch.height * v / vmax
-                dy = 6 if k_ == 0 else -3 - 9 * (k_ - 1)
-                d.add(String(x + (8 if k_ else 0), y + dy, nb(v), fontName=FSB, fontSize=7, fillColor=c,
-                             textAnchor="start" if k_ else "middle"))
+        ypos = lambda v: ch.y + ch.height * v / vmax  # noqa: E731
+        xpos = lambda j: ch.x + ch.width * (j + .5) / n  # noqa: E731
+        _, main, cmain = series[0]
+        if n <= 12:
+            for j, v in enumerate(main[:-1]):
+                d.add(String(xpos(j), ypos(v) + 5, nb(v), fontName=FSB, fontSize=7, fillColor=cmain,
+                             textAnchor="middle"))
+        pts = sorted((ypos(vals[-1]), vals[-1], c) for _, vals, c in series if vals)  # du plus bas au plus haut
+        prev = ch.y - 10
+        for y, v, c in pts:
+            ty = max(y - 3, prev + 9)
+            d.add(String(xpos(n - 1) + 7, ty, nb(v), fontName=FSB, fontSize=7, fillColor=c))
+            prev = ty
     return d
+
+
+def daily_cumul(dates: dict[str, pd.Series]) -> pd.DataFrame:
+    """Cumul par date de soumission : une ligne par date où au moins une fiche a été soumise."""
+    cols = {}
+    for name, d in dates.items():
+        d = pd.to_datetime(d, errors="coerce").dropna()
+        cols[name] = d.dt.normalize().value_counts()
+    t = pd.DataFrame(cols).fillna(0).astype(int).sort_index()
+    return t.cumsum()
 
 
 def weekly(dates: dict[str, pd.Series], n_weeks: int = 8) -> pd.DataFrame:
@@ -448,18 +468,19 @@ def ecam_report(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: 
     # 3) avancement semaine par semaine
     wk = weekly({"Enquêtés": pp["date"], "Engagés": pp.loc[eng_, "date"]})
     if not wk.empty:
-        weeks = [f"{i:%d/%m}" for i in wk.index]
+        dc = daily_cumul({"Enquêtés": pp["date"], "Engagés": pp.loc[eng_, "date"]})
         rows = [[f"{i:%d/%m/%Y}", nb(r["Enquêtés"]), nb(r["Engagés"]), nb(r["Enquêtés (cumul)"]),
                  nb(r["Engagés (cumul)"]), pct(r["Enquêtés (cumul)"], obj)] for i, r in wk.iterrows()]
         tbl = data_table(["Semaine du", "Enquêtés", "Engagés", "Cumul enquêtés", "Cumul engagés", "Cumul / objectif"],
                          rows, [W * .55 * x for x in (.2, .14, .14, .18, .17, .17)], right=set(range(1, 6)))
-        chart = cumul_chart(weeks, [("Cumul enquêtés", [int(x) for x in wk["Enquêtés (cumul)"]], BORD),
-                                    ("Cumul engagés", [int(x) for x in wk["Engagés (cumul)"]], GRIS)],
-                            obj, W * .45 - 18, "Cumul des producteurs enquêtés et engagés")
+        chart = cumul_chart([f"{i:%d/%m}" for i in dc.index],
+                            [("Cumul enquêtés", [int(x) for x in dc["Enquêtés"]], BORD),
+                             ("Cumul engagés", [int(x) for x in dc["Engagés"]], GRIS)],
+                            obj, W * .45 - 18, "Cumul des enquêtés et engagés, par date de soumission")
         story.append(KeepTogether(heading("Avancement semaine par semaine") + [
             side_by_side(tbl, chart, W * .55),
-            Paragraph("Semaine du lundi au dimanche, selon la date de la dernière fiche de chaque producteur.",
-                      S["small"])]))
+            Paragraph("Tableau : semaine du lundi au dimanche. Graphique : cumul à chaque date de soumission. "
+                      "Date retenue : la dernière fiche soumise de chaque producteur.", S["small"])]))
 
     # 4) refus d'engagement par coach
     if by == "agent_id":
@@ -582,18 +603,23 @@ def upas_report(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame, suivi
 
     wk = weekly({"Engagements": eng["date"], "Inspections": insp["date"], "Promesses": prom["date"]})
     if not wk.empty:
-        weeks = [f"{i:%d/%m}" for i in wk.index]
+        sub = lambda t: t["synchro"].fillna(t["date"]) if "synchro" in t else t["date"]  # noqa: E731
+        dc = daily_cumul({"Engagements": sub(eng), "Inspections": sub(insp), "Promesses": sub(prom)})
         rows = [[f"{i:%d/%m/%Y}", nb(r["Engagements"]), nb(r["Inspections"]), nb(r["Promesses"]),
                  nb(r["Engagements (cumul)"]), nb(r["Inspections (cumul)"]), nb(r["Promesses (cumul)"])]
                 for i, r in wk.iterrows()]
         tbl = data_table(["Semaine du", "Engag.", "Inspect.", "Promesses", "Cumul engag.", "Cumul inspect.",
                           "Cumul promesses"], rows, [W * .55 * x for x in (.16, .11, .12, .15, .15, .15, .16)],
                          right=set(range(1, 7)))
-        chart = cumul_chart(weeks, [("Engagements", [int(x) for x in wk["Engagements (cumul)"]], BORD),
-                                    ("Inspections", [int(x) for x in wk["Inspections (cumul)"]], GRIS),
-                                    ("Promesses", [int(x) for x in wk["Promesses (cumul)"]], BORD_40)],
-                            obj, W * .45 - 18, "Cumul des engagements, inspections et promesses")
-        story.append(KeepTogether(heading("Avancement semaine par semaine") + [side_by_side(tbl, chart, W * .55)]))
+        chart = cumul_chart([f"{i:%d/%m}" for i in dc.index],
+                            [("Engagements", [int(x) for x in dc["Engagements"]], BORD),
+                             ("Inspections", [int(x) for x in dc["Inspections"]], GRIS),
+                             ("Promesses", [int(x) for x in dc["Promesses"]], BORD_40)],
+                            obj, W * .45 - 18, "Cumul par date de soumission")
+        story.append(KeepTogether(heading("Avancement semaine par semaine") + [
+            side_by_side(tbl, chart, W * .55),
+            Paragraph("Tableau : semaine du lundi au dimanche, selon la date de chaque fiche. Graphique : cumul à "
+                      "chaque date de soumission (synchronisation Kobo).", S["small"])]))
 
     obs = insp[insp["signes"].notna()]
     h_us = heading(f"Swollen shoot par section — {nb(n_sig)} parcelles avec signes sur {nb(n_obs)} inspectées")
