@@ -244,8 +244,14 @@ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif !important; color: var(--ink); }
   border-radius:999px !important; border:1px solid var(--line) !important; background:var(--btn) !important;
   box-shadow: var(--shadow); transition: transform .15s, border-color .15s; font-weight:500; }
 [data-testid="stPopover"] button:hover, .stDownloadButton button:hover, .stButton button:hover { border-color: var(--g2) !important; transform: translateY(-1px); }
-.stButton button[kind="primary"] { background: var(--hero) !important; color:#fff !important; border-color:transparent !important; }
-.stButton button[kind="primary"] p { color:#fff !important; }
+.stButton button[kind="primary"], .stDownloadButton button[kind="primary"] {
+  background: linear-gradient(135deg, var(--hero2), var(--hero)) !important; color:#fff !important; border-color:transparent !important; }
+.stButton button[kind="primary"] p, .stDownloadButton button[kind="primary"] p { color:#fff !important; }
+.st-key-nav button { padding: 4px 11px !important; font-size:.84rem; }
+@media (min-width: 769px) and (max-width: 1380px) {
+  .st-key-nav button, .st-key-coop button { padding: 4px 8px !important; font-size:.78rem; }
+  .brand small { display:none; } .brand b { font-size:.98rem; } .brand .lg { width:38px; height:38px; }
+}
 [data-testid="stDataFrame"] { border-radius:14px; overflow:hidden; border:1px solid var(--line); }
 [data-testid="stTextInput"] input, [data-baseweb="select"] > div { border-radius:12px !important; }
 .st-key-offline_dl button { border-radius:999px !important; border:none !important; color:#fff !important; font-weight:600 !important;
@@ -420,6 +426,37 @@ def kpi_cards(items: list[dict], cible: int) -> str:
             f"<div class='row'><div class='val'>{fmt(k['v'])}<small>/ {fmt(cible)}</small></div>{ring_svg(k['v'] / cible * 100 if cible else 0)}</div>"
             f"<div class='sub'>{k['sub']}</div></div>")
     return "<div class='kpis'>" + "".join(out) + "</div>"
+
+
+def _slug(x) -> str:
+    t = unicodedata.normalize("NFKD", str(x)).encode("ascii", "ignore").decode()
+    return re.sub(r"[^A-Za-z0-9]+", "_", t).strip("_")[:40] or "x"
+
+
+def zip_files(files: dict[str, bytes]) -> bytes:
+    """Archive ZIP de plusieurs fichiers (un PDF par équipe)."""
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in files.items():
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+def weekly_table(dates: dict[str, pd.Series], n_weeks: int = 8) -> pd.DataFrame:
+    """Avancement semaine par semaine : nombre par semaine (lundi) pour chaque série de dates, et cumul."""
+    cols = {}
+    for name, d in dates.items():
+        d = pd.to_datetime(d, errors="coerce").dropna()
+        cols[name] = d.dt.to_period("W-SUN").dt.start_time.value_counts()
+    t = pd.DataFrame(cols).fillna(0).astype(int).sort_index()
+    if t.empty:
+        return t
+    t = t.reindex(pd.date_range(t.index.min(), t.index.max(), freq="W-MON"), fill_value=0)
+    for name in dates:
+        t[f"{name} (cumul)"] = t[name].cumsum()
+    return t.tail(n_weeks)
 
 
 def fmt(x: float, d: int = 0) -> str:
@@ -1908,6 +1945,7 @@ def render_upas(page: str, pop) -> None:
     def r(a, b):
         return a / b * 100 if b else 0
 
+    n_prom_insp = int((suivi["promesse"] & suivi["inspecte"]).sum()) if n_suivis else 0  # promesses des inspectés
     n_obs_u = int(insp.loc[insp["signes"].notna(), "code"].nunique())
     n_sains_u = n_obs_u - int(insp.loc[insp["signes"] == True, "code"].nunique())  # noqa: E712
 
@@ -1919,7 +1957,7 @@ def render_upas(page: str, pop) -> None:
         {"lab": "Inspection CSSVD", "ico": "🔍", "v": n_insp, "p": r(n_insp, n_eng),
          "sub": " · ".join(x for x in [f"{r(n_insp, n_eng):.0f} % des engagés", note("insp")] if x)},
         {"lab": "Promesse de taille", "ico": "✂️", "v": n_prom, "p": r(n_prom, n_insp), "cls": "amber",
-         "sub": " · ".join(x for x in [f"{r(n_prom, n_insp):.0f} % des inspectés", note("prom")] if x)},
+         "sub": " · ".join(x for x in [f"{r(n_prom_insp, n_insp):.0f} % des inspectés", note("prom")] if x)},
         {"lab": "Parcours complet", "ico": "🏁", "v": n_complet, "p": r(n_complet, n_suivis),
          "sub": f"{r(n_complet, n_suivis):.0f} % des suivis"},
         {"lab": "Saint", "ico": "🌿", "v": n_sains_u, "p": r(n_sains_u, n_obs_u), "cls": "sain",
@@ -2200,6 +2238,57 @@ def render_upas(page: str, pop) -> None:
                 st.plotly_chart(fig, width="stretch", config=CFG)
 
     # ======================================================================
+    elif page == "Rapports":
+        stamp = pd.Timestamp.now(tz="Africa/Abidjan").strftime("%Y-%m-%d")
+        html(f"<div class='muted' style='margin:4px 0 12px'>Rapports PDF synthétiques (indicateurs, tableaux, "
+             f"avancement semaine par semaine), générés au clic avec les <b>dernières données publiées</b> · "
+             f"{_filtres}.</div>")
+
+        def _upas_scope(sec_):
+            def build():
+                f = (lambda t: t[t["section"] == sec_])
+                e, i, pr_, su = f(eng), f(insp), f(prom), f(suivi)
+                an = anomalies[anomalies["Code producteur"].isin(set(su["code"]))]
+                nl = {"eng": len(e), "insp": len(i), "prom": len(pr_)}
+                return upas_pdf(e, i, pr_, su, an, objectif, _filtres, nl, perimetre=f"Section {sec_}")
+            return build
+
+        c1, c2 = st.columns(2, gap="medium")
+        with c1, st.container(key="card_ur_coop"):
+            html("<p class='card-title'>🏢 Toute la coopérative</p>"
+                 f"<div class='muted'>{n_suivis} producteurs suivis · {suivi['section'].nunique() if n_suivis else 0} "
+                 "sections</div>")
+            st.download_button("📄 Rapport de la coopérative",
+                               lambda: upas_pdf(eng, insp, prom, suivi, anomalies, objectif, _filtres, n_lignes),
+                               file_name=f"rapport_UPAS_cooperative_{stamp}.pdf", mime="application/pdf",
+                               type="primary", width="stretch", key="ur_coop")
+        secs = sorted(suivi["section"].dropna().unique()) if n_suivis else []
+        with c2, st.container(key="card_ur_sec"):
+            html("<p class='card-title'>🗺️ Par section (équipe)</p>"
+                 "<div class='muted'>Le nom du coach n'est pas dans les fichiers UPAS : les équipes sont suivies par section</div>")
+            sec = st.selectbox("Section", secs, key="ur_sec_sel", label_visibility="collapsed")
+            if sec:
+                st.download_button("📄 Rapport de la section", _upas_scope(sec),
+                                   file_name=f"rapport_UPAS_section_{_slug(sec)}_{stamp}.pdf", mime="application/pdf",
+                                   width="stretch", key="ur_sec")
+            st.download_button(f"🗂 Toutes les sections ({len(secs)} PDF, ZIP)", lambda: zip_files({
+                f"rapport_UPAS_section_{_slug(x)}_{stamp}.pdf": _upas_scope(x)() for x in secs}),
+                file_name=f"rapports_UPAS_par_section_{stamp}.zip", mime="application/zip", width="stretch",
+                key="ur_sec_zip", disabled=not secs)
+        if n_suivis:
+            with st.container(key="card_ur_apercu"):
+                html("<p class='card-title'>📊 Aperçu : avancement par section</p>"
+                     "<div class='muted'>Les mêmes chiffres que dans les rapports PDF</div>")
+                g = suivi.assign(section=suivi["section"].fillna("Sans section")).groupby("section")
+                ap = pd.DataFrame({"Producteurs": g.size(), "Engagés": g["engage"].sum(),
+                                   "Inspectés": g["inspecte"].sum(), "Promesses": g["promesse"].sum(),
+                                   "Parcours complet": g["complet"].sum()}).astype(int).reset_index()
+                ap["% complet"] = ap["Parcours complet"] / ap["Producteurs"]
+                st.dataframe(ap.rename(columns={"section": "Section"}), width="stretch", hide_index=True,
+                             column_config={"% complet": st.column_config.ProgressColumn(
+                                 "% complet", format="percent", min_value=0, max_value=1)})
+
+    # ======================================================================
     else:
         with st.container(key="card_u_raw"):
             html("<p class='card-title'>Données UPAS</p>"
@@ -2252,7 +2341,10 @@ def consolidate(d: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
 # ----------------------------------------------------------------------------
 # Rapport PDF des indicateurs ECAM (téléchargeable, généré à la demande avec les filtres en cours)
 # ----------------------------------------------------------------------------
-def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int, filtres: str, source: str) -> bytes:
+def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int, filtres: str, source: str,
+             perimetre: str = "", par: str = "coach") -> bytes:
+    """Rapport synthétique ECAM. perimetre : « Coach … » / « Section … » (vide = toute la coopérative) ;
+    par : regroupement du 2e tableau (« coach » ou « section »)."""
     from xml.sax.saxutils import escape
 
     from reportlab.lib import colors
@@ -2310,7 +2402,8 @@ def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int
     sym = pl[(pl["nb_sym"] > 0) | (pl["cssvd"] == True)].sort_values(["section", "agent_id", "prod_nom"])  # noqa: E712
 
     W = landscape(A4)[0] - 3 * cm
-    story = [Paragraph("Rapport des indicateurs — Coopérative ECAM", st_t),
+    story = [Paragraph("Rapport d'avancement — Coopérative ECAM", st_t),
+             *([Paragraph(escape(perimetre), st_h)] if perimetre else []),
              P(f"Suivi CSSVD · généré le {pd.Timestamp.now(tz='Africa/Abidjan'):%d/%m/%Y à %H:%M} · "
                f"données : {source} · {filtres}", st_m), Spacer(1, 10)]
 
@@ -2336,8 +2429,9 @@ def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int
               P(f"Calculs par code producteur (les fiches d'un même producteur sont fusionnées) : "
                 f"{n_saisies} fiches saisies pour {n} producteurs.", st_m)]
 
-    # 2) indicateurs par coach
-    g = pp.groupby(["agent_id", "agent_nom"], dropna=False)
+    # 2) indicateurs par coach (ou par section pour le rapport d'un coach)
+    keys = ["agent_id", "agent_nom"] if par == "coach" else ["section", "_vide"]
+    g = pp.assign(_vide="", section=pp["section"].fillna("Sans section")).groupby(keys, dropna=False)
     bc = pd.DataFrame({"prod": g.size(),
                        "eng": g["engagement"].apply(lambda s: int((s == True).sum())),  # noqa: E712
                        "ref": g["engagement"].apply(lambda s: int((s == False).sum())),  # noqa: E712
@@ -2346,20 +2440,37 @@ def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int
                        "ss": g["cssvd"].apply(lambda s: int((s == True).sum())),  # noqa: E712
                        "sa": g["cssvd"].apply(lambda s: int((s == False).sum()))}).reset_index()  # noqa: E712
     bc = bc.sort_values("prod", ascending=False)
+    if par != "coach":  # colonnes de même nom pour la suite du rapport
+        bc = bc.rename(columns={"section": "agent_id", "_vide": "agent_nom"})
     n_sain = int((pp["cssvd"] == False).sum())  # noqa: E712  parcelles inspectées sans signe de CSSVD
     rows = [[P(r.agent_id), P(r.agent_nom), P(r.prod), P(r.eng), P(r.ref), P(r.fi), P(r.pr), P(r.ss), P(r.sa)]
             for r in bc.itertuples()]
     rows.append([P("TOTAL"), P(""), P(n), P(n_eng), P(n_ref), P(n_fi), P(n_pr), P(n_ss), P(n_sain)])
-    t = table(["ID coach", "Nom du coach", "Producteurs", "Engagements", "Refus", "Inspections CSSVD",
+    t = table(["ID coach" if par == "coach" else "Section", "Nom du coach" if par == "coach" else "",
+               "Producteurs", "Engagements", "Refus", "Inspections CSSVD",
                "Promesses de taille", "Swollen shoot", "Saint"],
-              rows, [W * x for x in (.1, .24, .09, .1, .07, .12, .12, .1, .06)])
+              rows, [W * x for x in (.1, .24, .09, .1, .07, .12, .12, .1, .06)] if par == "coach"
+              else [W * x for x in (.24, .02, .1, .1, .08, .13, .13, .12, .08)])
     t.setStyle(TableStyle([("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#dcebd5"))]))
-    story += [Paragraph("Indicateurs par coach", st_h), t]
+    story += [Paragraph("Indicateurs par coach" if par == "coach" else "Indicateurs par section", st_h), t]
+
+    # 2 bis) avancement semaine par semaine
+    wk = weekly_table({"Enquêtés": pp["date"], "Engagés": pp.loc[pp["engagement"] == True, "date"]})  # noqa: E712
+    if not wk.empty:
+        rows = [[P(f"{i:%d/%m/%Y}"), P(int(r["Enquêtés"])), P(int(r["Engagés"])), P(int(r["Enquêtés (cumul)"])),
+                 P(int(r["Engagés (cumul)"])), P(pc(int(r["Enquêtés (cumul)"]), obj))] for i, r in wk.iterrows()]
+        story.append(KeepTogether([
+            Paragraph("Avancement semaine par semaine", st_h),
+            table(["Semaine du", "Producteurs enquêtés", "Engagés", "Cumul enquêtés", "Cumul engagés",
+                   "Cumul / objectif"], rows, [W * x for x in (.16, .16, .13, .16, .15, .15)]),
+            P("Semaine = du lundi au dimanche, selon la date de la dernière fiche de chaque producteur.", st_m)]))
 
     # 3) refus d'engagement par coach (synthèse)
-    story.append(Paragraph(f"Refus d'engagement par coach — {n_ref} refus sur {n} producteurs enquêtés "
+    story.append(Paragraph(f"Refus d'engagement{' par coach' if par == 'coach' else ''} — {n_ref} refus sur {n} producteurs enquêtés "
                            f"({pc(n_ref, n)})", st_h))
-    if n_ref:
+    if n_ref and par != "coach":
+        story.append(P("Détail par section : voir le tableau « Indicateurs par section » (colonne Refus).", st_m))
+    elif n_ref:
         rc = (bc[bc["ref"] > 0].sort_values(["ref", "prod"], ascending=[False, False]))
         secs = (refus.assign(section=refus["section"].fillna("—"))
                 .groupby(["agent_id", "agent_nom"], dropna=False)["section"]
@@ -2408,7 +2519,7 @@ def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int
         canvas.saveState()
         canvas.setFont("Helvetica", 7.5)
         canvas.setFillColor(GRIS)
-        canvas.drawString(1.5 * cm, 1 * cm, "Thrive-Track — Rapport des indicateurs ECAM")
+        canvas.drawString(1.5 * cm, 1 * cm, "Thrive-Track — Rapport d'avancement ECAM" + (f" · {perimetre}" if perimetre else ""))
         canvas.drawRightString(landscape(A4)[0] - 1.5 * cm, 1 * cm, f"Page {doc.page}")
         canvas.restoreState()
 
@@ -2420,7 +2531,7 @@ def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int
 
 
 def upas_pdf(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame, suivi: pd.DataFrame, anomalies: pd.DataFrame,
-             objectif: int, filtres: str, n_lignes: dict) -> bytes:
+             objectif: int, filtres: str, n_lignes: dict, perimetre: str = "") -> bytes:
     """Rapport PDF des indicateurs UPAS (parcours Engagement → Inspection CSSVD → Promesse de taille)."""
     from xml.sax.saxutils import escape
 
@@ -2476,7 +2587,8 @@ def upas_pdf(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame, suivi: p
     n_sig, n_obs = sig["code"].nunique(), int(insp.loc[insp["signes"].notna(), "code"].nunique())
 
     W = landscape(A4)[0] - 3 * cm
-    story = [Paragraph("Rapport des indicateurs — Coopérative UPAS", st_t),
+    story = [Paragraph("Rapport d'avancement — Coopérative UPAS", st_t),
+             *([Paragraph(escape(perimetre), st_h)] if perimetre else []),
              P(f"Suivi CSSVD · parcours Engagement → Inspection CSSVD → Promesse de taille · généré le "
                f"{pd.Timestamp.now(tz='Africa/Abidjan'):%d/%m/%Y à %H:%M} · {filtres}", st_m), Spacer(1, 10)]
 
@@ -2486,7 +2598,7 @@ def upas_pdf(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame, suivi: p
               + f" % de l'objectif ({fmt(obj)})"),
              ("Engagements du ménage", n_eng, f"{pc(n_eng, n)} des suivis"),
              ("Inspections CSSVD", n_insp, f"{pc(n_insp, n_eng)} des engagés"),
-             ("Promesses de taille", n_prom, f"{pc(n_prom, n_insp)} des inspectés"
+             ("Promesses de taille", n_prom, f"{pc(int((suivi['promesse'] & suivi['inspecte']).sum()) if n else 0, n_insp)} des inspectés"
               + (f" · {n_bad} sans inspection" if n_bad else "")),
              ("Parcours complet", n_comp, f"{pc(n_comp, n)} des suivis"),
              ("Swollen shoot (CSSVD)", n_sig, f"parcelles avec signes sur {n_obs} inspectée(s)"),
@@ -2522,6 +2634,18 @@ def upas_pdf(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame, suivi: p
                   P("« Inspection à faire » = engagés pas encore inspectés ; « Promesse à faire » = inspectés sans "
                     "promesse. Liste nominative : application, page Suivi producteurs (export Excel par section).",
                     st_m)]
+
+    # 2 bis) avancement semaine par semaine
+    wk = weekly_table({"Engagements": eng["date"], "Inspections": insp["date"], "Promesses": prom["date"]})
+    if not wk.empty:
+        rows = [[P(f"{i:%d/%m/%Y}"), P(int(r["Engagements"])), P(int(r["Inspections"])), P(int(r["Promesses"])),
+                 P(int(r["Engagements (cumul)"])), P(int(r["Inspections (cumul)"])), P(int(r["Promesses (cumul)"]))]
+                for i, r in wk.iterrows()]
+        story.append(KeepTogether([
+            Paragraph("Avancement semaine par semaine", st_h),
+            table(["Semaine du", "Engagements", "Inspections", "Promesses", "Cumul engagements",
+                   "Cumul inspections", "Cumul promesses"], rows, [W * x for x in (.14, .13, .13, .13, .15, .15, .15)]),
+            P("Semaine = du lundi au dimanche, selon la date de chaque fiche.", st_m)]))
 
     # 3) signes de CSSVD par section (synthèse)
     story.append(Paragraph(f"Swollen shoot par section — {n_sig} parcelle(s) avec signes sur {n_obs} inspectée(s)",
@@ -2568,7 +2692,7 @@ def upas_pdf(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame, suivi: p
         canvas.saveState()
         canvas.setFont("Helvetica", 7.5)
         canvas.setFillColor(GRIS)
-        canvas.drawString(1.5 * cm, 1 * cm, "Thrive-Track — Rapport des indicateurs UPAS")
+        canvas.drawString(1.5 * cm, 1 * cm, "Thrive-Track — Rapport d'avancement UPAS" + (f" · {perimetre}" if perimetre else ""))
         canvas.drawRightString(landscape(A4)[0] - 1.5 * cm, 1 * cm, f"Page {doc.page}")
         canvas.restoreState()
 
@@ -2653,7 +2777,7 @@ def offline_button() -> None:
     """Bouton « Rapport hors ligne » : le fichier n'est généré qu'au clic."""
     version = report_version()
     obj = int(st.session_state.get("upas_obj", 1000) or 1000)
-    st.download_button("📥 Rapport hors ligne", lambda: offline_report_html(version, obj),
+    st.download_button("📥 Hors ligne", lambda: offline_report_html(version, obj),
                        file_name=f"thrive_track_rapport_{pd.Timestamp.now(tz='Africa/Abidjan'):%Y-%m-%d}.html",
                        mime="text/html", width="stretch", key="offline_dl",
                        help="Un fichier unique (ECAM + UPAS) qui s'ouvre sans l'application : à envoyer par "
@@ -2667,10 +2791,10 @@ html(CSS)
 
 # --- En-tête ---------------------------------------------------------------
 PAGES = {
-    "ECAM": ["Tableau de bord", "Producteurs", "Coachs", "Symptômes", "Carte", "Données"],
-    "UPAS": ["Tableau de bord", "Suivi producteurs", "Inspections", "Promesses", "Carte", "Données"],
+    "ECAM": ["Tableau de bord", "Producteurs", "Coachs", "Symptômes", "Carte", "Rapports", "Données"],
+    "UPAS": ["Tableau de bord", "Suivi producteurs", "Inspections", "Promesses", "Carte", "Rapports", "Données"],
 }
-h1, h0, h2, h4, h5, h3 = st.columns([1.2, 1.25, 4.6, 1.3, .38, 1.1], vertical_alignment="center")
+h1, h0, h2, h4, h5, h3 = st.columns([1.2, 1.2, 5.0, .95, .36, 1.05], vertical_alignment="center")
 with h1:
     html("<div class='brand'><div class='lg'>🌿</div><div><b>Thrive·Track</b><small>Suivi CSSVD</small></div></div>")
 with h0:
@@ -3181,6 +3305,77 @@ elif page == "Carte":
                               legend=dict(orientation="h", y=1.02, x=0, bgcolor="rgba(255,255,255,.7)"),
                               font=dict(family=FONT))
             st.plotly_chart(fig, width="stretch", config=CFG)
+
+# ============================================================================
+# PAGE : Rapports (PDF synthétiques à partager aux équipes)
+# ============================================================================
+elif page == "Rapports":
+    stamp = pd.Timestamp.now(tz="Africa/Abidjan").strftime("%Y-%m-%d")
+    html(f"<div class='muted' style='margin:4px 0 12px'>Rapports PDF synthétiques (indicateurs, tableaux, avancement "
+         f"semaine par semaine), générés au clic avec les <b>dernières données publiées</b> · {_filtres}. "
+         f"Aucun numéro de téléphone ni position GPS.</div>")
+
+    def _ecam_scope(mask_pp, mask_parc, mask_saisie, perimetre, par):
+        return lambda: ecam_pdf(pp[mask_pp], parc[mask_parc], int(mask_saisie.sum()), objectif, _filtres, source,
+                                perimetre=perimetre, par=par)
+
+    c1, c2, c3 = st.columns(3, gap="medium")
+    with c1, st.container(key="card_r_coop"):
+        html("<p class='card-title'>🏢 Toute la coopérative</p>"
+             f"<div class='muted'>{len(pp)} producteurs · {df['agent_id'].nunique()} coachs · "
+             f"{pp['section'].nunique()} sections</div>")
+        st.download_button("📄 Rapport de la coopérative", lambda: ecam_pdf(pp, parc, n_saisies, objectif, _filtres, source),
+                           file_name=f"rapport_ECAM_cooperative_{stamp}.pdf", mime="application/pdf",
+                           type="primary", width="stretch", key="r_coop")
+    coachs = (pp.dropna(subset=["agent_id"]).groupby("agent_id")["agent_nom"].last().sort_index())
+    with c2, st.container(key="card_r_coach"):
+        html("<p class='card-title'>👤 Par coach (équipe)</p>"
+             "<div class='muted'>Ses producteurs, ses chiffres par section et son avancement</div>")
+        cid = st.selectbox("Coach", list(coachs.index), format_func=lambda c: f"{c} — {coachs[c]}", key="r_coach_sel",
+                           label_visibility="collapsed")
+        if cid:
+            lab = f"Coach {cid} — {coachs[cid]}"
+            st.download_button("📄 Rapport du coach", _ecam_scope(pp["agent_id"] == cid, parc["agent_id"] == cid,
+                                                                  df_saisie["agent_id"] == cid, lab, "section"),
+                               file_name=f"rapport_ECAM_{_slug(cid)}_{stamp}.pdf", mime="application/pdf",
+                               width="stretch", key="r_coach")
+        st.download_button(f"🗂 Tous les coachs ({len(coachs)} PDF, ZIP)", lambda: zip_files({
+            f"rapport_ECAM_{_slug(c)}_{_slug(n)}_{stamp}.pdf":
+                _ecam_scope(pp["agent_id"] == c, parc["agent_id"] == c, df_saisie["agent_id"] == c,
+                            f"Coach {c} — {n}", "section")() for c, n in coachs.items()}),
+            file_name=f"rapports_ECAM_par_coach_{stamp}.zip", mime="application/zip", width="stretch", key="r_coach_zip")
+    secs = sorted(pp["section"].dropna().unique())
+    with c3, st.container(key="card_r_sec"):
+        html("<p class='card-title'>🗺️ Par section</p>"
+             "<div class='muted'>Les coachs de la section, leurs chiffres et l'avancement</div>")
+        sec = st.selectbox("Section", secs, key="r_sec_sel", label_visibility="collapsed")
+        if sec:
+            st.download_button("📄 Rapport de la section", _ecam_scope(pp["section"] == sec, parc["section"] == sec,
+                                                                       df_saisie["section"] == sec, f"Section {sec}", "coach"),
+                               file_name=f"rapport_ECAM_section_{_slug(sec)}_{stamp}.pdf", mime="application/pdf",
+                               width="stretch", key="r_sec")
+        st.download_button(f"🗂 Toutes les sections ({len(secs)} PDF, ZIP)", lambda: zip_files({
+            f"rapport_ECAM_section_{_slug(x)}_{stamp}.pdf":
+                _ecam_scope(pp["section"] == x, parc["section"] == x, df_saisie["section"] == x, f"Section {x}", "coach")()
+            for x in secs}), file_name=f"rapports_ECAM_par_section_{stamp}.zip", mime="application/zip",
+            width="stretch", key="r_sec_zip")
+    with st.container(key="card_r_apercu"):
+        html("<p class='card-title'>📊 Aperçu : avancement par coach</p>"
+             "<div class='muted'>Les mêmes chiffres que dans les rapports PDF</div>")
+        g = pp.groupby(["agent_id", "agent_nom"], dropna=False)
+        ap = pd.DataFrame({"Producteurs": g.size(),
+                           "Engagés": g["engagement"].apply(lambda x: int((x == True).sum())),  # noqa: E712
+                           "Refus": g["engagement"].apply(lambda x: int((x == False).sum())),  # noqa: E712
+                           "Inspections CSSVD": g["doc_fiche"].apply(lambda x: int((x == 1).sum())),
+                           "Promesses": g["doc_promesse"].apply(lambda x: int((x == 1).sum())),
+                           "Swollen shoot": g["cssvd"].apply(lambda x: int((x == True).sum())),  # noqa: E712
+                           "Saint": g["cssvd"].apply(lambda x: int((x == False).sum()))}).reset_index()  # noqa: E712
+        ap["% engagés"] = ap["Engagés"] / ap["Producteurs"].where(ap["Producteurs"] > 0)
+        st.dataframe(ap.sort_values("Producteurs", ascending=False).rename(columns={"agent_id": "ID coach",
+                                                                                    "agent_nom": "Nom du coach"}),
+                     width="stretch", hide_index=True, column_config={
+                         "% engagés": st.column_config.ProgressColumn("% engagés", format="percent", min_value=0,
+                                                                     max_value=1)})
 
 # ============================================================================
 # PAGE : Données

@@ -167,6 +167,21 @@ Chaque publication est enregistrée comme une version dans le dépôt de donnée
   vérifier le secret `KOBO_TOKEN` (ou le saisir dans ⚙ Paramètres).
 - **Export** : page *Symptômes → Producteurs avec swollen shoot → Exporter Excel / CSV*.
 
+## 3 ter. Rapports PDF à partager aux équipes
+
+Page **Rapports** (menu du haut, ECAM et UPAS) : rapports PDF **synthétiques**, générés au clic avec les
+dernières données publiées (et les filtres de ⚙ Paramètres) :
+
+| | ECAM | UPAS |
+|---|---|---|
+| Toute la coopérative | ✓ | ✓ |
+| Par coach (équipe) | ✓ (un PDF, ou tous les coachs en ZIP) | — (pas de coach dans les fichiers) |
+| Par section | ✓ (un PDF, ou toutes en ZIP) | ✓ (un PDF, ou toutes en ZIP) |
+
+Chaque rapport contient : les indicateurs clés (sur l'objectif de 1 000), les tableaux par coach ou par section,
+l'**avancement semaine par semaine** (et le cumul), le swollen shoot par section, la fréquence des symptômes
+(ECAM) ou l'état des parcelles et les anomalies par type (UPAS). Pas de numéro de téléphone ni de GPS.
+
 ## 4. Mettre à jour l'application
 
 Toute modification poussée sur GitHub est redéployée automatiquement :
