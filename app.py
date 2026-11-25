@@ -1935,8 +1935,8 @@ def render_upas(page: str, pop) -> None:
                         lambda: upas_pdf(eng, insp, prom, suivi, anomalies, objectif, _filtres, n_lignes),
                         file_name=f"rapport_indicateurs_UPAS_{pd.Timestamp.now(tz='Africa/Abidjan'):%Y-%m-%d}.pdf",
                         mime="application/pdf", width="stretch", key="pdf_upas",
-                        help="Indicateurs, avancement par section, producteurs à relancer, signes de CSSVD, état des "
-                             "parcelles, contrôle qualité. Tient compte des filtres de ⚙ Paramètres.")
+                        help="Rapport synthétique : indicateurs, avancement et reste à faire par section, swollen shoot "
+                             "par section, état des parcelles, anomalies par type. Tient compte des filtres.")
 
     if not anomalies.empty:
         resume = " · ".join(f"{n} {k.lower()}" for k, n in anomalies["Anomalie"].value_counts().items())
@@ -2356,32 +2356,51 @@ def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int
     t.setStyle(TableStyle([("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#dcebd5"))]))
     story += [Paragraph("Indicateurs par coach", st_h), t]
 
-    # 3) refus d'engagement
-    story.append(Paragraph(f"Refus d'engagement — {n_ref} producteur(s)", st_h))
+    # 3) refus d'engagement par coach (synthèse)
+    story.append(Paragraph(f"Refus d'engagement par coach — {n_ref} refus sur {n} producteurs enquêtés "
+                           f"({pc(n_ref, n)})", st_h))
     if n_ref:
-        rows = [[P(i), P(r.prod_code), P(r.prod_nom), P(r.section), P(r.localite), P(r.agent_id), P(r.agent_nom),
-                 P(d(r.date))] for i, r in enumerate(refus.itertuples(), 1)]
-        story.append(table(["N°", "Code producteur", "Nom du producteur", "Section", "Localité", "ID coach",
-                            "Nom du coach", "Date"], rows, [W * x for x in (.04, .11, .22, .12, .12, .09, .2, .1)]))
+        rc = (bc[bc["ref"] > 0].sort_values(["ref", "prod"], ascending=[False, False]))
+        secs = (refus.assign(section=refus["section"].fillna("—"))
+                .groupby(["agent_id", "agent_nom"], dropna=False)["section"]
+                .agg(lambda x: ", ".join(f"{k} ({v})" for k, v in x.value_counts().items())))
+        rows = [[P(r.agent_id), P(r.agent_nom), P(r.prod), P(r.ref), P(pc(r.ref, r.prod)),
+                 P(secs.get((r.agent_id, r.agent_nom), ""))] for r in rc.itertuples()]
+        rows.append([P("TOTAL"), P(""), P(n), P(n_ref), P(pc(n_ref, n)), P("")])
+        t = table(["ID coach", "Nom du coach", "Enquêtés", "Refus", "% de refus", "Sections concernées (refus)"],
+                  rows, [W * x for x in (.11, .27, .1, .08, .1, .34)])
+        t.setStyle(TableStyle([("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#dcebd5"))]))
+        story.append(t)
+        story.append(P(f"{len(rc)} coach(s) sur {len(bc)} ont au moins un refus. "
+                       "Liste nominative : application, page Producteurs (export Excel).", st_m))
     else:
         story.append(P("Aucun refus d'engagement.", st_m))
 
-    # 4) producteurs et plantations avec symptômes
-    story.append(Paragraph(f"Producteurs et plantations présentant des symptômes — {sym['prod_code'].nunique()} "
-                           f"producteur(s), {len(sym)} plantation(s)", st_h))
+    # 4) swollen shoot par section (synthèse)
+    ins = pp[pp["cssvd"].notna()]
+    story.append(Paragraph(f"Swollen shoot par section — {n_ss} producteur(s) avec signes sur {len(ins)} inspecté(s)",
+                           st_h))
+    if len(ins):
+        gs = ins.assign(section=ins["section"].fillna("Sans section")).groupby("section")
+        ts = pd.DataFrame({"insp": gs.size(), "sig": gs["cssvd"].apply(lambda x: int((x == True).sum()))})  # noqa: E712
+        pls = sym.assign(section=sym["section"].fillna("Sans section")).groupby("section").size()
+        ts["pl"] = pls.reindex(ts.index).fillna(0).astype(int)
+        ts = ts.sort_values("sig", ascending=False)
+        rows = [[P(sec), P(int(r.insp)), P(int(r.sig)), P(int(r.insp - r.sig)), P(pc(r.sig, r.insp)), P(int(r.pl))]
+                for sec, r in ts.iterrows()]
+        rows.append([P("TOTAL"), P(len(ins)), P(n_ss), P(len(ins) - n_ss), P(pc(n_ss, len(ins))), P(len(sym))])
+        t = table(["Section", "Producteurs inspectés", "Avec signes (swollen shoot)", "Saint", "% avec signes",
+                   "Plantations avec symptômes"], rows, [W * x for x in (.22, .14, .17, .1, .12, .17)])
+        t.setStyle(TableStyle([("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#dcebd5"))]))
+        story.append(t)
     if len(sym):
-        rows = []
-        for i, r in enumerate(sym.itertuples(), 1):
-            lst = ", ".join(SYMPTOMES[k][0] for k in sym_cols if getattr(r, k) == 1) or "signes CSSVD (sans détail)"
-            rows.append([P(i), P(r.prod_code), P(r.prod_nom), P(r.plantation), P(r.section), P(coach(r)),
-                         P(lst), P(int(r.nb_sym))])
-        story.append(table(["N°", "Code producteur", "Nom du producteur", "Code plantation", "Section", "Coach",
-                            "Symptômes observés", "Nb"], rows, [W * x for x in (.04, .09, .16, .09, .17, .16, .25, .04)]))
         cnt = sorted(((SYMPTOMES[k][0], int((pl[k] == 1).sum())) for k in sym_cols), key=lambda x: -x[1])
         story.append(KeepTogether([Paragraph("Fréquence des symptômes", st_h),
                                    table(["Symptôme", "Plantations", "% des plantations avec symptômes"],
-                                         [[P(a), P(b), P(pc(b, len(sym)))] for a, b in cnt],
+                                         [[P(x), P(y), P(pc(y, len(sym)))] for x, y in cnt],
                                          [W * .4, W * .15, W * .25])]))
+        story.append(P("Liste des producteurs et plantations avec symptômes : application, page Symptômes "
+                       "(export Excel / Excel par section).", st_m))
     else:
         story.append(P("Aucun symptôme observé.", st_m))
 
@@ -2483,48 +2502,43 @@ def upas_pdf(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame, suivi: p
                                                                     ("prom", "promesses")))
     story += [kt, Spacer(1, 4), P(f"Une fiche par code producteur et par fichier (doublons retirés) · {dbl}.", st_m)]
 
-    # 2) avancement par section
+    # 2) avancement par section, avec ce qui reste à faire (synthèse)
     if n:
         g = suivi.assign(section=suivi["section"].fillna("Sans section")).groupby("section")
         sec = pd.DataFrame({"prod": g.size(), "eng": g["engage"].sum(), "insp": g["inspecte"].sum(),
-                            "prom": g["promesse"].sum(), "comp": g["complet"].sum()}).astype(int).reset_index()
-        rows = [[P(r.section), P(r.prod), P(r.eng), P(r.insp), P(r.prom), P(r.comp), P(pc(r.comp, r.prod))]
-                for r in sec.itertuples()]
+                            "prom": g["promesse"].sum(), "comp": g["complet"].sum(),
+                            "afi": g.apply(lambda x: int((x["engage"] & ~x["inspecte"]).sum()), include_groups=False),
+                            "afp": g.apply(lambda x: int((x["inspecte"] & ~x["promesse"]).sum()), include_groups=False)}
+                           ).astype(int).reset_index()
+        rows = [[P(r.section), P(r.prod), P(r.eng), P(r.insp), P(r.prom), P(r.comp), P(pc(r.comp, r.prod)),
+                 P(r.afi), P(r.afp)] for r in sec.itertuples()]
         rows.append([P("TOTAL"), P(n), P(int(suivi["engage"].sum())), P(int(suivi["inspecte"].sum())),
-                     P(int(suivi["promesse"].sum())), P(n_comp), P(pc(n_comp, n))])
+                     P(int(suivi["promesse"].sum())), P(n_comp), P(pc(n_comp, n)), P(int(sec["afi"].sum())),
+                     P(int(sec["afp"].sum()))])
         story += [Paragraph("Avancement par section", st_h),
                   table(["Section", "Producteurs", "Engagés", "Inspectés", "Promesses", "Parcours complet",
-                         "% complet"], rows, [W * x for x in (.22, .12, .12, .12, .12, .16, .12)], total=True)]
+                         "% complet", "Inspection à faire", "Promesse à faire"], rows,
+                        [W * x for x in (.17, .1, .09, .09, .1, .12, .09, .12, .12)], total=True),
+                  P("« Inspection à faire » = engagés pas encore inspectés ; « Promesse à faire » = inspectés sans "
+                    "promesse. Liste nominative : application, page Suivi producteurs (export Excel par section).",
+                    st_m)]
 
-    # 3) producteurs à relancer
-    def relance(titre, mask, date_col, date_lab):
-        t = suivi[mask].sort_values(["section", "code"])
-        story.append(Paragraph(f"{titre} — {len(t)} producteur(s)", st_h))
-        if t.empty:
-            story.append(P("Aucun.", st_m))
-            return
-        rows = [[P(i), P(r.code), P(r.section), P(r.localite), P(d(getattr(r, date_col)))]
-                for i, r in enumerate(t.itertuples(), 1)]
-        story.append(table(["N°", "Code producteur", "Section", "Localité", date_lab], rows,
-                           [W * x for x in (.06, .22, .24, .28, .2)]))
-
-    if n:
-        relance("Inspection CSSVD à faire (engagés, pas encore inspectés)", suivi["engage"] & ~suivi["inspecte"],
-                "date_eng", "Engagé le")
-        relance("Promesse de taille à faire (inspectés, sans promesse)", suivi["inspecte"] & ~suivi["promesse"],
-                "date_insp", "Inspecté le")
-
-    # 4) parcelles avec signes de CSSVD
-    story.append(Paragraph(f"Producteurs et parcelles présentant des signes de CSSVD — {n_sig} producteur(s)", st_h))
-    if n_sig:
-        rows = [[P(i), P(r.code), P(r.parcelle), P(r.section), P(r.localite),
-                 P(" | ".join(x for x in (r.sympt_princ, r.sympt_sec) if pd.notna(x))),
-                 P("" if pd.isna(r.nb_foyers) else int(r.nb_foyers)), P(d(r.date))]
-                for i, r in enumerate(sig.sort_values(["section", "code"]).itertuples(), 1)]
-        story.append(table(["N°", "Code producteur", "Code parcelle", "Section", "Localité", "Symptômes observés",
-                            "Foyers", "Inspecté le"], rows, [W * x for x in (.04, .12, .12, .12, .12, .3, .07, .11)]))
+    # 3) signes de CSSVD par section (synthèse)
+    story.append(Paragraph(f"Swollen shoot par section — {n_sig} parcelle(s) avec signes sur {n_obs} inspectée(s)",
+                           st_h))
+    obs = insp[insp["signes"].notna()]
+    if len(obs):
+        go_ = obs.assign(section=obs["section"].fillna("Sans section")).groupby("section")
+        ts = pd.DataFrame({"insp": go_["code"].nunique(),
+                           "sig": go_.apply(lambda x: x.loc[x["signes"] == True, "code"].nunique(),  # noqa: E712
+                                            include_groups=False)})
+        rows = [[P(sec_), P(int(r.insp)), P(int(r.sig)), P(int(r.insp - r.sig)), P(pc(r.sig, r.insp))]
+                for sec_, r in ts.sort_values("sig", ascending=False).iterrows()]
+        rows.append([P("TOTAL"), P(n_obs), P(n_sig), P(n_obs - n_sig), P(pc(n_sig, n_obs))])
+        story.append(table(["Section", "Parcelles inspectées", "Avec signes (swollen shoot)", "Saint", "% avec signes"],
+                           rows, [W * x for x in (.25, .17, .2, .12, .14)], total=True))
     else:
-        story.append(P(f"Aucun signe de swollen shoot observé sur les {n_obs} parcelle(s) inspectée(s).", st_m))
+        story.append(P("Aucune inspection CSSVD.", st_m))
 
     # 5) état des parcelles
     etat = split_counts(insp["etat"]) if "etat" in insp else pd.Series(dtype=int)
@@ -2534,14 +2548,19 @@ def upas_pdf(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame, suivi: p
                                          [[P(k), P(int(v)), P(pc(int(v), n_insp))] for k, v in etat.items()],
                                          [W * .45, W * .15, W * .25])]))
 
-    # 6) contrôle qualité
+    # 6) contrôle qualité (synthèse par type)
     story.append(Paragraph(f"Contrôle qualité des fichiers — {len(anomalies)} anomalie(s)", st_h))
     if len(anomalies):
-        cols = [c for c in ["Anomalie", "Code producteur", "Coach", "Fichier(s)", "Détail"] if c in anomalies]
-        w = {"Anomalie": .18, "Code producteur": .12, "Coach": .15, "Fichier(s)": .15, "Détail": .4}
-        tot = sum(w[c] for c in cols)
-        rows = [[P(r[c]) for c in cols] for _, r in anomalies.iterrows()]
-        story.append(table(cols, rows, [W * w[c] / tot for c in cols]))
+        ta = anomalies.groupby("Anomalie").agg(nb=("Code producteur", "size"),
+                                               nprod=("Code producteur", "nunique")).sort_values("nb", ascending=False)
+        rows = [[P(k), P(int(r.nb)), P(int(r.nprod))] for k, r in ta.iterrows()]
+        if "Coach" in anomalies and anomalies["Coach"].notna().any():
+            par_c = anomalies["Coach"].dropna().str.split(", ").explode().value_counts()
+            story.append(table(["Coach", "Anomalies"], [[P(k), P(int(v))] for k, v in par_c.items()],
+                               [W * .4, W * .15]))
+        story.append(table(["Type d'anomalie", "Nombre", "Producteurs concernés"], rows, [W * .4, W * .15, W * .2]))
+        story.append(P("Détail de chaque anomalie : application, bandeau « Contrôle qualité UPAS » "
+                       "(export Excel).", st_m))
     else:
         story.append(P("Aucune anomalie : 1 producteur = 1 engagement → 1 inspection → 1 promesse.", st_m))
 
@@ -2841,8 +2860,8 @@ _pb.download_button("📄 Rapport PDF des indicateurs",
                     lambda: ecam_pdf(pp, parc, n_saisies, objectif, _filtres, source),
                     file_name=f"rapport_indicateurs_ECAM_{pd.Timestamp.now(tz='Africa/Abidjan'):%Y-%m-%d}.pdf",
                     mime="application/pdf", width="stretch", key="pdf_ecam",
-                    help="Indicateurs, tableau par coach, refus d'engagement avec le coach, producteurs et "
-                         "plantations avec symptômes. Tient compte des filtres de ⚙ Paramètres.")
+                    help="Rapport synthétique : indicateurs, tableau par coach, refus par coach, swollen shoot par "
+                         "section, fréquence des symptômes. Tient compte des filtres de ⚙ Paramètres.")
 
 if n_extra > 0:
     dbl = doublons_table(df_saisie)
