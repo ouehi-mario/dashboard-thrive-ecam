@@ -1508,10 +1508,10 @@ def activity_chart(df: pd.DataFrame) -> tuple[go.Figure, int]:
 def ring_chart(rate: float, label: str) -> go.Figure:
     r = 0 if pd.isna(rate) else float(rate)
     fig = go.Figure(go.Pie(values=[r, 1 - r], hole=.8, sort=False, direction="clockwise",
-                           marker=dict(colors=[GREEN, "rgba(0,0,0,.07)"]), textinfo="none", hoverinfo="skip"))
+                           marker=dict(colors=[GREEN, "rgba(127,127,127,.18)"]), textinfo="none", hoverinfo="skip"))
     fig.add_annotation(text=f"<span style='font-size:40px'>{r * 100:.0f}%</span><br>"
                             f"<span style='font-size:12px;color:#6a7b69'>{label}</span>",
-                       showarrow=False, font=dict(family=FONT, color="#222"))
+                       showarrow=False, font=dict(family=FONT, color="#4f9a4f"))  # lisible en mode clair et sombre
     return base_layout(fig, 200)
 
 
