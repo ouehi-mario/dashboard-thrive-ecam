@@ -1922,7 +1922,7 @@ def render_upas(page: str, pop) -> None:
          "sub": " · ".join(x for x in [f"{r(n_prom, n_insp):.0f} % des inspectés", note("prom")] if x)},
         {"lab": "Parcours complet", "ico": "🏁", "v": n_complet, "p": r(n_complet, n_suivis),
          "sub": f"{r(n_complet, n_suivis):.0f} % des suivis"},
-        {"lab": "Sains", "ico": "🌿", "v": n_sains_u, "p": r(n_sains_u, n_obs_u), "cls": "sain",
+        {"lab": "Saint", "ico": "🌿", "v": n_sains_u, "p": r(n_sains_u, n_obs_u), "cls": "sain",
          "sub": f"sans signe de CSSVD · {r(n_sains_u, n_obs_u):.0f} % des inspectés"},
     ], cible))
 
@@ -2323,7 +2323,7 @@ def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int
              ("Inspections CSSVD", n_fi, f"{pc(n_fi, n)} des enquêtés"),
              ("Promesses de taille", n_pr, f"{pc(n_pr, n)} des enquêtés"),
              ("Swollen shoot (CSSVD)", n_ss, f"avec signes · {len(sym)} plantation(s)"),
-             ("Sains", int((pp["cssvd"] == False).sum()),  # noqa: E712
+             ("Saint", int((pp["cssvd"] == False).sum()),  # noqa: E712
               f"sans signe de CSSVD · {pc(int((pp['cssvd'] == False).sum()), n_fi)} des inspectés")]
     kt = Table([[Paragraph(f"<b>{fmt(v)}</b>", st_big) for _, v, _ in tiles],
                 [P(lab, st_c) for lab, _, _ in tiles],
@@ -2351,7 +2351,7 @@ def ecam_pdf(pp: pd.DataFrame, parc: pd.DataFrame, n_saisies: int, objectif: int
             for r in bc.itertuples()]
     rows.append([P("TOTAL"), P(""), P(n), P(n_eng), P(n_ref), P(n_fi), P(n_pr), P(n_ss), P(n_sain)])
     t = table(["ID coach", "Nom du coach", "Producteurs", "Engagements", "Refus", "Inspections CSSVD",
-               "Promesses de taille", "Swollen shoot", "Sains"],
+               "Promesses de taille", "Swollen shoot", "Saint"],
               rows, [W * x for x in (.1, .24, .09, .1, .07, .12, .12, .1, .06)])
     t.setStyle(TableStyle([("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#dcebd5"))]))
     story += [Paragraph("Indicateurs par coach", st_h), t]
@@ -2471,7 +2471,7 @@ def upas_pdf(eng: pd.DataFrame, insp: pd.DataFrame, prom: pd.DataFrame, suivi: p
               + (f" · {n_bad} sans inspection" if n_bad else "")),
              ("Parcours complet", n_comp, f"{pc(n_comp, n)} des suivis"),
              ("Swollen shoot (CSSVD)", n_sig, f"parcelles avec signes sur {n_obs} inspectée(s)"),
-             ("Sains", n_obs - n_sig, f"sans signe de CSSVD · {pc(n_obs - n_sig, n_obs)} des inspectés")]
+             ("Saint", n_obs - n_sig, f"sans signe de CSSVD · {pc(n_obs - n_sig, n_obs)} des inspectés")]
     kt = Table([[Paragraph(f"<b>{fmt(v)}</b>", st_big) for _, v, _ in tiles],
                 [P(lab, st_c) for lab, _, _ in tiles],
                 [P(sub, st_sc) for _, _, sub in tiles]], colWidths=[W / len(tiles)] * len(tiles))
@@ -2804,7 +2804,7 @@ html(kpi_cards([
      "sub": f"{_r(n_fiche, n_prod):.0f} % des enquêtés · {n_signes} avec signes de swollen shoot"},
     {"lab": "Promesse de taille", "ico": "✂️", "v": n_promesse, "p": _r(n_promesse, n_prod), "cls": "amber",
      "sub": f"{_r(n_promesse, n_prod):.0f} % des enquêtés"},
-    {"lab": "Sains", "ico": "🌿", "v": n_sains, "p": _r(n_sains, n_fiche), "cls": "sain",
+    {"lab": "Saint", "ico": "🌿", "v": n_sains, "p": _r(n_sains, n_fiche), "cls": "sain",
      "sub": f"sans signe de CSSVD · {_r(n_sains, n_fiche):.0f} % des inspectés"},
 ], cible))
 
@@ -3150,13 +3150,13 @@ elif page == "Carte":
         if g.empty:
             st.info("Aucune coordonnée GPS dans les données filtrées.")
         else:
-            g["Statut"] = g["cssvd"].map({True: "CSSVD détecté", False: "Sain"}).fillna("Non renseigné")
+            g["Statut"] = g["cssvd"].map({True: "CSSVD détecté", False: "Saint"}).fillna("Non renseigné")
             g["sup"] = g["sup_tot"].fillna(1).clip(.5, 30)
             fig = px.scatter_map(
                 g, lat="lat", lon="lon", color="Statut", size="sup", size_max=18, zoom=10,
                 hover_name="prod_nom", hover_data={"prod_code": True, "section": True, "agent_id": True,
                                                    "sup_tot": ":.2f", "lat": False, "lon": False, "sup": False},
-                color_discrete_map={"CSSVD détecté": "#d9534f", "Sain": GREEN, "Non renseigné": GREY},
+                color_discrete_map={"CSSVD détecté": "#d9534f", "Saint": GREEN, "Non renseigné": GREY},
                 map_style="open-street-map")
             fig.update_layout(height=600, margin=dict(l=0, r=0, t=0, b=0), paper_bgcolor="rgba(0,0,0,0)",
                               legend=dict(orientation="h", y=1.02, x=0, bgcolor="rgba(255,255,255,.7)"),
