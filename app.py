@@ -588,9 +588,41 @@ def fetch_image(url: str, token: str) -> tuple[bytes | None, str]:
     return download_kobo(url, token)
 
 
+class _NoCache(Exception):
+    """Échec de téléchargement : levé pour que st.cache_data ne mémorise pas l'échec."""
+
+
 @st.cache_data(show_spinner=False, ttl=3600, max_entries=500)
+def _download_cached(url: str, token: str) -> tuple[bytes, str]:
+    img, why = fetch_kobo(url, token)
+    if img is None:
+        raise _NoCache(why)
+    return img, why
+
+
 def download_kobo(url: str, token: str) -> tuple[bytes | None, str]:
-    """Télécharge une photo Kobo -> (JPEG, "ok") ou (None, cause : acces / introuvable / format / reseau)."""
+    """Photo Kobo pour l'affichage : les réussites sont mises en cache 1 h, les échecs jamais (on réessaie)."""
+    try:
+        return _download_cached(url, token)
+    except _NoCache as e:
+        return None, str(e)
+
+
+def fetch_kobo(url: str, token: str, tries: int = 3) -> tuple[bytes | None, str]:
+    """Télécharge une photo Kobo -> (JPEG, "ok") ou (None, cause : acces / introuvable / format / reseau / erreur …).
+    Réessaie quand Kobo est surchargé (429, 5xx) ou ne répond pas."""
+    import time
+
+    why = "reseau"
+    for k in range(tries):
+        img, why = _fetch_kobo_once(url, token)
+        if img is not None or not (why == "reseau" or why.startswith("erreur 429") or why.startswith("erreur 5")):
+            return img, why
+        time.sleep(2 * (k + 1))
+    return None, why
+
+
+def _fetch_kobo_once(url: str, token: str) -> tuple[bytes | None, str]:
     import requests
     from PIL import Image
 
@@ -629,6 +661,7 @@ FAIL_MSG = {
     "introuvable": "introuvable sur Kobo → photo supprimée, ou la clé `KOBO_TOKEN` appartient à un compte sans accès au projet",
     "format": "format d'image non lisible",
     "reseau": "Kobo ne répond pas (réseau / délai dépassé)",
+    "erreur 429": "Kobo a limité le nombre de requêtes (trop de photos d'un coup) → relancer dans quelques minutes",
 }
 
 
@@ -1292,42 +1325,119 @@ def gh_commit_files(files: dict[str, bytes], message: str) -> tuple[bool, str]:
     return (True, "ok") if upd.status_code == 200 else (False, f"GitHub {upd.status_code} : {upd.text[:200]}")
 
 
-def archive_photos(raw: pd.DataFrame, token: str, progress=None) -> dict:
-    """Télécharge depuis Kobo les photos pas encore archivées et les enregistre (par lots de 20)."""
+FAILS_FILE = "photos/_echecs.json"
+PERMANENT = ("introuvable", "format")  # échecs qui ne se règlent pas en réessayant
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_fails() -> dict:
+    """Photos impossibles à archiver : {clé: {"url", "raison", "date"}} (serveur, sinon dépôt GitHub)."""
+    import json
+
+    path = os.path.join(PHOTO_DIR, "_echecs.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        pass
+    if gh_cfg():
+        try:
+            r = _gh("GET", f"contents/{FAILS_FILE}?ref={gh_cfg()[2]}", accept="application/vnd.github.raw")
+            if r.status_code == 200:
+                return r.json()
+        except Exception:
+            pass
+    return {}
+
+
+def photo_index(raw: pd.DataFrame) -> pd.DataFrame:
+    """Une ligne par photo : producteur, coach, type de photo, date de soumission, lien."""
+    cols = [c for c in raw.columns if _norm(c).endswith("_url")]
+    pick = lambda key: _find(list(raw.columns), *SPEC[key])  # noqa: E731
+    c_code, c_nom, c_coach, c_sub = pick("prod_code"), pick("prod_nom"), pick("agent_id"), pick("submission")
+    rows = []
+    for c in cols:
+        v = raw[c].astype("string").str.strip()
+        for i in v[v.str.startswith("http").fillna(False)].index:
+            rows.append({"Code planteur": raw.at[i, c_code] if c_code else "", "Nom producteur": raw.at[i, c_nom] if c_nom else "",
+                         "Coach": raw.at[i, c_coach] if c_coach else "",
+                         "Photo": re.sub(r"_URL$", "", c.split("/")[-1]).replace("📷", "").strip(),
+                         "Soumis le": raw.at[i, c_sub] if c_sub else "", "Lien Kobo": v[i]})
+    t = pd.DataFrame(rows)
+    if len(t):
+        t["clé"] = t["Lien Kobo"].map(photo_key)
+    return t
+
+
+def archive_photos(raw: pd.DataFrame, token: str, progress=None, limit: int = 150, retry_all: bool = False) -> dict:
+    """Télécharge depuis Kobo les photos pas encore archivées (au plus `limit` par clic, 6 en parallèle),
+    les enregistre par lots de 25 et note les photos impossibles à récupérer."""
+    import json
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     urls = photo_urls(raw)
     have = archived_keys()
-    todo = [u for u in urls if photo_key(u) not in have]
-    res = {"total": len(urls), "deja": len(urls) - len(todo), "ok": 0, "echecs": {}, "erreur": ""}
+    fails = dict(load_fails())
+    missing = [u for u in urls if photo_key(u) not in have]
+    skipped = [u for u in missing if not retry_all and fails.get(photo_key(u), {}).get("raison") in PERMANENT]
+    todo = [u for u in missing if u not in set(skipped)]
+    batch_todo = todo[:limit]
+    res = {"total": len(urls), "deja": len(urls) - len(missing), "ok": 0, "echecs": {}, "erreur": "",
+           "ignorees": len(skipped), "restantes": len(todo) - len(batch_todo)}
     batch: dict[str, bytes] = {}
+    now = pd.Timestamp.now(tz="UTC").isoformat()
 
-    def flush() -> None:
-        if batch and gh_cfg() and not res["erreur"]:
-            ok, err = gh_commit_files(batch, f"Archive de {len(batch)} photo(s)")
+    def flush(final: bool = False) -> None:
+        files = dict(batch)
+        if final:
+            os.makedirs(PHOTO_DIR, exist_ok=True)
+            data = json.dumps(fails, ensure_ascii=False, indent=0).encode()
+            with open(os.path.join(PHOTO_DIR, "_echecs.json"), "wb") as f:
+                f.write(data)
+            files[FAILS_FILE] = data
+        if files and gh_cfg() and not res["erreur"]:
+            ok, err = gh_commit_files(files, f"Archive de {len(batch)} photo(s)")
             if not ok:
                 res["erreur"] = err
         batch.clear()
 
-    for i, u in enumerate(todo, start=1):
-        img, why = download_kobo(u, token)
-        if img:
+    done = 0
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futs = {pool.submit(fetch_kobo, u, token): u for u in batch_todo}
+        for fut in as_completed(futs):
+            u = futs[fut]
             key = photo_key(u)
-            _save_photo_local(key, img)
-            batch[f"photos/{key}.jpg"] = img
-            res["ok"] += 1
-        else:
-            res["echecs"][why] = res["echecs"].get(why, 0) + 1
-        if len(batch) >= 20:
-            flush()
-        if progress:
-            progress(i / len(todo), f"Archivage des photos… {i}/{len(todo)}")
-    flush()
+            try:
+                img, why = fut.result()
+            except Exception:
+                img, why = None, "reseau"
+            if img:
+                _save_photo_local(key, img)
+                batch[f"photos/{key}.jpg"] = img
+                fails.pop(key, None)
+                res["ok"] += 1
+            else:
+                res["echecs"][why] = res["echecs"].get(why, 0) + 1
+                fails[key] = {"url": u, "raison": why, "date": now}
+            done += 1
+            if len(batch) >= 25:
+                flush()
+            if progress:
+                progress(done / max(len(batch_todo), 1), f"Archivage des photos… {done}/{len(batch_todo)}")
+    flush(final=True)
     archived_keys.clear()
+    load_fails.clear()
     return res
 
 
 def archive_report(res: dict) -> str:
     txt = (f"🖼 Photos : **{res['ok']}** archivée(s) maintenant, {res['deja']} déjà archivée(s), "
            f"{res['total']} au total.")
+    if res.get("restantes"):
+        txt += f"\n\n➡ Encore **{res['restantes']}** photo(s) à archiver : cliquez à nouveau sur « Archiver »."
+    if res.get("ignorees"):
+        txt += (f"\n\nℹ {res['ignorees']} photo(s) déjà signalée(s) introuvable(s) sur Kobo n'ont pas été retentées "
+                "(cochez « Réessayer aussi les introuvables » pour le faire).")
     if res["echecs"]:
         txt += "\n\n⚠ Non archivées : " + " ; ".join(f"{n} — {FAIL_MSG.get(w, w)}" for w, n in res["echecs"].items())
     if res["erreur"]:
@@ -1474,16 +1584,36 @@ def admin_panel() -> None:
     if cur is not None:
         urls = photo_urls(cur)
         have = archived_keys()
-        missing = sum(photo_key(u) not in have for u in urls)
-        st.caption(f"ECAM publié : **{len(cur)} fiches** · photos archivées : **{len(urls) - missing}/{len(urls)}**")
+        fails = load_fails()
+        miss = [u for u in urls if photo_key(u) not in have]
+        perm = [u for u in miss if fails.get(photo_key(u), {}).get("raison") in PERMANENT]
+        retry_all = st.checkbox("Réessayer aussi les photos introuvables sur Kobo", key="arch_retry")
+        a_faire = len(miss) if retry_all else len(miss) - len(perm)
+        st.caption(f"ECAM publié : **{len(cur)} fiches** · photos archivées : **{len(urls) - len(miss)}/{len(urls)}**"
+                   + (f" · ⚠ {len(perm)} introuvable(s) sur Kobo (non récupérables)" if perm else "")
+                   + (f" · {a_faire} à archiver" if a_faire else ""))
         c1, c2 = st.columns(2)
-        if c1.button(f"🖼 Archiver {missing} photo(s)", width="stretch", disabled=not (missing and token),
-                     help=None if token else "Clé Kobo (KOBO_TOKEN) nécessaire."):
+        n_clic = min(a_faire, 150)
+        if c1.button(f"🖼 Archiver {n_clic} photo(s)" + (f" sur {a_faire}" if a_faire > n_clic else ""),
+                     width="stretch", disabled=not (a_faire and token),
+                     help="150 photos au plus par clic (6 en parallèle). Cliquez à nouveau tant qu'il en reste."
+                     if token else "Clé Kobo (KOBO_TOKEN) nécessaire."):
             bar = st.progress(0.0, "Archivage des photos…")
-            res = archive_photos(cur, token, bar.progress)
+            res = archive_photos(cur, token, bar.progress, retry_all=retry_all)
             bar.empty()
-            st.session_state["admin_flash"] = (not res["erreur"], archive_report(res))
+            st.session_state["admin_flash"] = (not res["erreur"] and not res["echecs"], archive_report(res))
             st.rerun()
+        if miss:
+            def _liste_non_archivees():
+                t = photo_index(cur)
+                t = t[t["clé"].isin({photo_key(u) for u in miss})].copy()
+                t["Raison"] = t["clé"].map(lambda k: FAIL_MSG.get(fails.get(k, {}).get("raison", ""),
+                                                                  fails.get(k, {}).get("raison", "pas encore tentée")))
+                return to_xlsx(t.drop(columns="clé"), "Photos non archivées")
+            st.download_button(f"📋 Liste des {len(miss)} photo(s) non archivée(s) (Excel)", _liste_non_archivees,
+                               file_name="photos_non_archivees.xlsx", width="stretch", key="dl_non_arch",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               help="Producteur, coach, type de photo, date de soumission, lien Kobo et raison.")
         c2.download_button("💾 Tout l'ECAM (.xlsx)", df_to_xlsx_bytes(cur), "ecam_toutes_les_fiches.xlsx",
                            width="stretch", help="Sauvegarde de toutes les fiches publiées (fusionnées).")
     st.text_input("Jeton API Kobo (photos)", type="password", key="kobo_token",
