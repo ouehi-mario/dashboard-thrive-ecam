@@ -1382,7 +1382,7 @@ def archive_photos(raw: pd.DataFrame, token: str, progress=None, limit: int = 15
     skipped = [u for u in missing if not retry_all and fails.get(photo_key(u), {}).get("raison") in PERMANENT]
     todo = [u for u in missing if u not in set(skipped)]
     batch_todo = todo[:limit]
-    res = {"total": len(urls), "deja": len(urls) - len(missing), "ok": 0, "echecs": {}, "erreur": "",
+    res = {"total": len(urls) - len(skipped), "deja": len(urls) - len(missing), "ok": 0, "echecs": {}, "erreur": "",
            "ignorees": len(skipped), "restantes": len(todo) - len(batch_todo)}
     batch: dict[str, bytes] = {}
     now = pd.Timestamp.now(tz="UTC").isoformat()
@@ -1427,6 +1427,9 @@ def archive_photos(raw: pd.DataFrame, token: str, progress=None, limit: int = 15
     flush(final=True)
     archived_keys.clear()
     load_fails.clear()
+    # photos introuvables sur Kobo : retirées du total et du message (elles ne peuvent pas être archivées)
+    for r in PERMANENT:
+        res["total"] -= res["echecs"].pop(r, 0)
     return res
 
 
@@ -1435,9 +1438,6 @@ def archive_report(res: dict) -> str:
            f"{res['total']} au total.")
     if res.get("restantes"):
         txt += f"\n\n➡ Encore **{res['restantes']}** photo(s) à archiver : cliquez à nouveau sur « Archiver »."
-    if res.get("ignorees"):
-        txt += (f"\n\nℹ {res['ignorees']} photo(s) déjà signalée(s) introuvable(s) sur Kobo n'ont pas été retentées "
-                "(cochez « Réessayer aussi les introuvables » pour le faire).")
     if res["echecs"]:
         txt += "\n\n⚠ Non archivées : " + " ; ".join(f"{n} — {FAIL_MSG.get(w, w)}" for w, n in res["echecs"].items())
     if res["erreur"]:
@@ -1589,8 +1589,8 @@ def admin_panel() -> None:
         perm = [u for u in miss if fails.get(photo_key(u), {}).get("raison") in PERMANENT]
         retry_all = st.checkbox("Réessayer aussi les photos introuvables sur Kobo", key="arch_retry")
         a_faire = len(miss) if retry_all else len(miss) - len(perm)
-        st.caption(f"ECAM publié : **{len(cur)} fiches** · photos archivées : **{len(urls) - len(miss)}/{len(urls)}**"
-                   + (f" · ⚠ {len(perm)} introuvable(s) sur Kobo (non récupérables)" if perm else "")
+        total = len(urls) if retry_all else len(urls) - len(perm)  # photos introuvables sur Kobo : hors du compte
+        st.caption(f"ECAM publié : **{len(cur)} fiches** · photos archivées : **{len(urls) - len(miss)}/{total}**"
                    + (f" · {a_faire} à archiver" if a_faire else ""))
         c1, c2 = st.columns(2)
         n_clic = min(a_faire, 150)
@@ -1603,14 +1603,15 @@ def admin_panel() -> None:
             bar.empty()
             st.session_state["admin_flash"] = (not res["erreur"] and not res["echecs"], archive_report(res))
             st.rerun()
-        if miss:
+        a_lister = miss if retry_all else [u for u in miss if u not in set(perm)]
+        if a_lister:
             def _liste_non_archivees():
                 t = photo_index(cur)
-                t = t[t["clé"].isin({photo_key(u) for u in miss})].copy()
+                t = t[t["clé"].isin({photo_key(u) for u in a_lister})].copy()
                 t["Raison"] = t["clé"].map(lambda k: FAIL_MSG.get(fails.get(k, {}).get("raison", ""),
                                                                   fails.get(k, {}).get("raison", "pas encore tentée")))
                 return to_xlsx(t.drop(columns="clé"), "Photos non archivées")
-            st.download_button(f"📋 Liste des {len(miss)} photo(s) non archivée(s) (Excel)", _liste_non_archivees,
+            st.download_button(f"📋 Liste des {len(a_lister)} photo(s) non archivée(s) (Excel)", _liste_non_archivees,
                                file_name="photos_non_archivees.xlsx", width="stretch", key="dl_non_arch",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                help="Producteur, coach, type de photo, date de soumission, lien Kobo et raison.")
